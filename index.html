@@ -830,7 +830,6 @@ async function saveCheckin(){
   const entry={date:new Date().toISOString(), answers:{...answers}, note:note||null};
   data.push(entry);
   save(data);
-  // Сохраняем в Supabase если авторизован через Google/email
   if(currentUser){
     try{
       await sb.from('checkins').insert({
@@ -842,7 +841,6 @@ async function saveCheckin(){
       });
     }catch(e){ console.warn('Supabase save failed:', e); }
   }
-  // Сохраняем на Railway если авторизован через Telegram
   if(window._saveTgCheckin) window._saveTgCheckin(entry);
   showResult();
 }
@@ -1111,7 +1109,7 @@ function openTimePicker(){
   overlay.id = 'time-picker-overlay';
 
   const hours   = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
-  const minutes = Array.from({length:60},(_,i)=>String(i).padStart(2,'0'));
+  const minutes = Array.from({length:12},(_,i)=>String(i*5).padStart(2,'0'));
 
   overlay.innerHTML = `
     <div class="time-picker-modal" style="top:${top}px;left:${rect.left}px;width:${rect.width}px">
@@ -1188,6 +1186,10 @@ async function applyNotification(){
   const lbl = document.getElementById('notif-apply-lbl');
   try {
     await scheduleNotification();
+    // Синхронизируем время напоминания на сервер для Telegram уведомлений
+    const s = loadSettings();
+    const [hh, mm] = (s.notifTime||'20:00').split(':').map(Number);
+    if(window._syncReminderToServer) window._syncReminderToServer(hh, mm, true);
     if(lbl){ lbl.textContent='✓ Уведомление установлено'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2000); }
   } catch(e) {
     if(lbl){ lbl.textContent='Ошибка — разреши уведомления'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2500); }
@@ -1616,22 +1618,19 @@ async function signOut(){
 <script>
 // ── TELEGRAM MINI APP ──
 const RAILWAY_URL = 'https://burnout.up.railway.app';
-
-let tgUser = null; // данные пользователя Telegram
+let tgUser = null;
 
 async function initTelegram() {
   if (!window.Telegram?.WebApp) return;
-
   const tg = window.Telegram.WebApp;
   tg.ready();
   tg.expand();
   tg.BackButton.hide();
 
   const initData = tg.initData;
-  if (!initData) return; // открыто не в Telegram
+  if (!initData) return;
 
   try {
-    // Проверяем initData на сервере
     const res = await fetch(`${RAILWAY_URL}/auth/telegram`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1639,19 +1638,11 @@ async function initTelegram() {
     });
     const data = await res.json();
     if (!data.ok) return;
-
     tgUser = data.user;
-    console.log('TG auth ok:', tgUser.name);
-
-    // Подгружаем чекины с сервера и мержим с локальными
     await syncFromServer(initData);
-
-  } catch (e) {
-    console.warn('TG auth failed:', e);
-  }
+  } catch (e) { console.warn('TG auth failed:', e); }
 }
 
-// Подгрузить чекины с сервера и сохранить локально
 async function syncFromServer(initData) {
   try {
     const res = await fetch(`${RAILWAY_URL}/checkins/get`, {
@@ -1661,26 +1652,19 @@ async function syncFromServer(initData) {
     });
     const data = await res.json();
     if (!data.ok || !data.checkins.length) return;
-
-    // Мержим: серверные данные приоритет, локальные дополняем
     const local = load();
     const localDates = new Set(local.map(d => d.date));
     const newFromServer = data.checkins
       .filter(c => !localDates.has(c.date))
       .map(c => ({ date: c.date, answers: c.answers, note: c.note }));
-
     if (newFromServer.length) {
       const merged = [...local, ...newFromServer].sort((a, b) => new Date(a.date) - new Date(b.date));
       save(merged);
       renderMain();
-      console.log(`Синхронизировано с сервера: ${newFromServer.length} чекинов`);
     }
-  } catch (e) {
-    console.warn('Sync from server failed:', e);
-  }
+  } catch (e) { console.warn('Sync failed:', e); }
 }
 
-// Сохранить чекин на сервер (вызывается после saveCheckin)
 async function saveTgCheckin(entry) {
   if (!tgUser || !window.Telegram?.WebApp?.initData) return;
   try {
@@ -1693,19 +1677,26 @@ async function saveTgCheckin(entry) {
         checkin: { ...entry, score: calcS(entry.answers) },
       }),
     });
-  } catch (e) {
-    console.warn('TG checkin save failed:', e);
-  }
+  } catch (e) { console.warn('TG checkin save failed:', e); }
 }
 
-// Патчим saveCheckin чтобы он также сохранял на сервер
-const _origSaveCheckin = saveCheckin;
-// Переопределяем saveCheckin ниже через обёртку
+// Сохраняем напоминание на сервер при изменении настроек
+async function syncReminderToServer(hour, minute, enabled) {
+  if (!tgUser || !window.Telegram?.WebApp?.initData) return;
+  try {
+    await fetch(`${RAILWAY_URL}/reminder/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: window.Telegram.WebApp.initData,
+        hour, minute, enabled,
+      }),
+    });
+  } catch (e) { console.warn('Reminder sync failed:', e); }
+}
+
 window._saveTgCheckin = saveTgCheckin;
-</script>
-<script>
-// Патч saveCheckin для TG синхронизации
-const __origSave = window.saveCheckin;
+window._syncReminderToServer = syncReminderToServer;
 </script>
 <script>
 if('serviceWorker' in navigator){
@@ -1714,7 +1705,7 @@ if('serviceWorker' in navigator){
 renderMain();
 initNotifications();
 initAuth();
-initTelegram(); // запускаем Telegram авторизацию
+initTelegram();
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
 </body>
