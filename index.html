@@ -1141,7 +1141,7 @@ function openTimePicker(){
     const hhCol = document.getElementById('tp-hh');
     const mmCol = document.getElementById('tp-mm');
     hhCol.scrollTop = curHH * 44;
-    mmCol.scrollTop = curMM * 44;
+    mmCol.scrollTop = (curMM / 5) * 44;
     updateActiveItems();
     hhCol.addEventListener('scroll', updateActiveItems);
     mmCol.addEventListener('scroll', updateActiveItems);
@@ -1168,8 +1168,10 @@ function updateActiveItems(){
 function applyTimePicker(){
   const hhCol = document.getElementById('tp-hh');
   const mmCol = document.getElementById('tp-mm');
-  const hh = String(Math.round(hhCol.scrollTop/44)).padStart(2,'0');
-  const mm = String(Math.round(mmCol.scrollTop/44)).padStart(2,'0');
+  const hhIdx = Math.round(hhCol.scrollTop/44);
+  const mmIdx = Math.round(mmCol.scrollTop/44);
+  const hh = String(hhIdx).padStart(2,'0');
+  const mm = String(mmIdx * 5).padStart(2,'0'); // каждый шаг = 5 минут
   const time = hh+':'+mm;
   setSetting('notifTime', time);
   const el = document.getElementById('notif-display');
