@@ -13,7 +13,7 @@
 <title>Детектор выгорания</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
@@ -1619,57 +1619,13 @@ initNotifications();
 initAuth();
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
-  <script>
-  // Инициализация Telegram Mini App
+<script>
   if (window.Telegram?.WebApp) {
     const tg = window.Telegram.WebApp;
-    
-    // Сообщаем Telegram что приложение готово
     tg.ready();
-    
-    // Расширяем на весь экран
     tg.expand();
-    
-    // Применяем цветовую схему Telegram
-    document.documentElement.setAttribute(
-      'data-theme', 
-      tg.colorScheme // 'light' или 'dark'
-    );
-    
-    // Убираем стандартную кнопку "Назад" Telegram если не нужна
     tg.BackButton.hide();
-    
-    // Получаем данные пользователя Telegram (если нужно)
-    const tgUser = tg.initDataUnsafe?.user;
-    if (tgUser) {
-      console.log('TG User:', tgUser.first_name, tgUser.id);
-      // Можно использовать как идентификатор вместо Google OAuth
-    }
   }
 </script>
-```
-
----
-
-## Шаг 3: Зарегистрировать Mini App через BotFather
-```
-/newapp
-```
-Выбери бота → заполни:
-- **Title**: Детектор выгорания
-- **Description**: Отслеживай своё эмоциональное состояние
-- **Photo**: загрузи иконку 640×360px
-- **Web App URL**: `https://byrebiss.github.io/burnout_app`
-
-После этого появится прямая ссылка вида:
-```
-https://t.me/burnout_detector_bot/app
-```
-
----
-
-## Шаг 4: Настроить Menu Button (кнопка в меню чата с ботом)
-```
-/mybots → [твой бот] → Bot Settings → Menu Button
 </body>
 </html>
