@@ -255,6 +255,15 @@ canvas#chart{width:100%;height:100%}
 .time-picker-sel{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:44px;border-top:1px solid rgba(245,243,239,.1);border-bottom:1px solid rgba(245,243,239,.1);pointer-events:none;z-index:1}
 .no-insights{text-align:center;padding:48px 16px;color:rgba(245,243,239,.28);font-size:13px;font-weight:300;line-height:1.9}
 
+/* CONFIRM MODAL */
+.confirm-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center}
+.confirm-box{background:#161210;border:1px solid rgba(245,243,239,.1);border-bottom:none;width:390px;max-width:100%;padding:24px 24px 36px}
+.confirm-title{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28);margin-bottom:12px}
+.confirm-text{font-size:15px;font-weight:600;color:#f5f3ef;margin-bottom:24px;line-height:1.4}
+.confirm-btns{display:flex;gap:8px}
+.confirm-btn-cancel{flex:1;padding:14px;background:transparent;border:1px solid rgba(245,243,239,.12);color:rgba(245,243,239,.4);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+.confirm-btn-danger{flex:1;padding:14px;background:#e05535;border:none;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer}
+
 /* SYNC MODAL */
 .sync-modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.85);display:flex;align-items:flex-end;justify-content:center}
 .sync-modal{background:#0d0b09;border:1px solid rgba(245,243,239,.08);width:390px;max-width:100%;padding:24px;padding-bottom:40px}
@@ -348,7 +357,7 @@ canvas#chart{width:100%;height:100%}
     <div class="topbar">
       <button class="icon-btn" onclick="showScreen('screen-history');showHistory()">←</button>
       <div class="topbar-title">КОРЗИНА</div>
-      <div style="width:30px"></div>
+      <button class="icon-btn" onclick="askClearTrash()" style="font-size:11px;opacity:.4;font-family:'Fira Code',monospace;letter-spacing:-.02em">ВСЁ</button>
     </div>
     <div class="scroll" style="padding-top:22px">
       <div class="sec-head">УДАЛЁННЫЕ ЧЕКИНЫ</div>
@@ -571,7 +580,16 @@ function showScreen(id){
   });
 }
 function goBack(to){ showScreen(to); if(to==='screen-main') renderMain(); if(to==='screen-history') showHistory(); }
-function resetData(){ if(!confirm('Сбросить все данные?')) return; localStorage.removeItem('bd3'); localStorage.removeItem('bd3-trash'); localStorage.removeItem('bd3-inotes'); renderMain(); showScreen('screen-main'); }
+function resetData(){
+  showConfirm('Сбросить все данные?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Все чекины будут удалены навсегда</span>', ()=>{
+    localStorage.removeItem('bd3');
+    localStorage.removeItem('bd3-trash');
+    localStorage.removeItem('bd3-inotes');
+    if(window.Telegram?.WebApp?.initData && window._deleteTgCheckins) window._deleteTgCheckins();
+    renderMain();
+    showScreen('screen-main');
+  });
+}
 
 // ── MAIN ──
 function toggleCompare(){ compareMode=!compareMode; renderMain(); }
@@ -1055,12 +1073,52 @@ function showTrash(){
   }).join('') + '</div>';
 }
 
+function showConfirm(text, onConfirm){
+  const existing = document.getElementById('confirm-overlay');
+  if(existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'confirm-overlay';
+  el.id = 'confirm-overlay';
+  el.innerHTML = `
+    <div class="confirm-box">
+      <div class="confirm-title">ПОДТВЕРЖДЕНИЕ</div>
+      <div class="confirm-text">${text}</div>
+      <div class="confirm-btns">
+        <button class="confirm-btn-cancel" onclick="document.getElementById('confirm-overlay').remove()">Отмена</button>
+        <button class="confirm-btn-danger" id="confirm-ok">Удалить</button>
+      </div>
+    </div>`;
+  document.querySelector('.phone').appendChild(el);
+  document.getElementById('confirm-ok').onclick = () => { el.remove(); onConfirm(); };
+}
+
 function askPermDelete(i){
-  if(!confirm('Удалить навсегда? Это нельзя отменить.')) return;
+  showConfirm('Удалить навсегда?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Это действие нельзя отменить</span>', ()=>{
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    trash.splice(i, 1);
+    localStorage.setItem('bd3-trash', JSON.stringify(trash));
+    showTrash();
+  });
+}
+
+function askPermDeleteFromDetail(trashIdx){
+  showConfirm('Удалить навсегда?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Это действие нельзя отменить</span>', ()=>{
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    trash.splice(trashIdx, 1);
+    localStorage.setItem('bd3-trash', JSON.stringify(trash));
+    showTrash();
+  });
+}
+
+function askClearTrash(){
   const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
-  trash.splice(i, 1);
-  localStorage.setItem('bd3-trash', JSON.stringify(trash));
-  showTrash();
+  if(!trash.length) return;
+  const n = trash.length;
+  const word = n===1?'чекин':n<5?'чекина':'чекинов';
+  showConfirm(`Очистить корзину?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">${n} ${word} будет удалено навсегда</span>`, ()=>{
+    localStorage.removeItem('bd3-trash');
+    showTrash();
+  });
 }
 
 function showTrashDetail(trashIdx){
@@ -1091,14 +1149,6 @@ function showTrashDetail(trashIdx){
       <button onclick="restoreCheckin(${trashIdx})" style="background:transparent;border:none;color:rgba(245,243,239,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">Восстановить чекин</button>
       <button onclick="askPermDeleteFromDetail(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
     </div>`;
-}
-
-function askPermDeleteFromDetail(trashIdx){
-  if(!confirm('Удалить навсегда? Это нельзя отменить.')) return;
-  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
-  trash.splice(trashIdx, 1);
-  localStorage.setItem('bd3-trash', JSON.stringify(trash));
-  showTrash(); // возвращаемся в корзину
 }
 
 function restoreCheckin(trashIdx){
