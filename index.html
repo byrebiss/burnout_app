@@ -12,6 +12,7 @@
 
 <title>Детектор выгорания</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
@@ -252,6 +253,19 @@ canvas#chart{width:100%;height:100%}
 .time-picker-sep{font-family:'Fira Code',monospace;font-size:24px;color:rgba(245,243,239,.3);padding:0 4px;line-height:220px}
 .time-picker-sel{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:44px;border-top:1px solid rgba(245,243,239,.1);border-bottom:1px solid rgba(245,243,239,.1);pointer-events:none;z-index:1}
 .no-insights{text-align:center;padding:48px 16px;color:rgba(245,243,239,.28);font-size:13px;font-weight:300;line-height:1.9}
+
+/* SYNC MODAL */
+.sync-modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.85);display:flex;align-items:flex-end;justify-content:center}
+.sync-modal{background:#0d0b09;border:1px solid rgba(245,243,239,.08);width:390px;max-width:100%;padding:24px;padding-bottom:40px}
+.sync-modal-title{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28);margin-bottom:20px}
+.sync-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.2);letter-spacing:.1em}
+.sync-divider::before,.sync-divider::after{content:'';flex:1;height:1px;background:rgba(245,243,239,.06)}
+.sync-google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:15px;background:#fff;color:#0d0b09;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:700;transition:opacity .2s}
+.sync-google-btn:hover{opacity:.88}
+.sync-email-input{width:100%;background:#161210;border:1px solid rgba(245,243,239,.1);color:#f5f3ef;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;padding:14px;outline:none;margin-bottom:8px;border-radius:0;-webkit-appearance:none}
+.sync-email-input::placeholder{color:rgba(245,243,239,.2)}
+.sync-msg{font-family:'Fira Code',monospace;font-size:9px;margin-top:10px;letter-spacing:.08em;display:none}
+.sync-msg.ok{color:#5c8c6e}.sync-msg.err{color:#e05535}
 </style>
 </head>
 <body>
@@ -415,6 +429,9 @@ canvas#chart{width:100%;height:100%}
         </div>
       </div>
 
+      <div class="sec-head" style="margin-top:24px">СИНХРОНИЗАЦИЯ</div>
+      <div class="settings-group" id="account-section"></div>
+
     </div>
   </div>
 
@@ -564,10 +581,49 @@ function renderMain(){
   const cta  = document.getElementById('main-cta');
   const body = document.getElementById('main-body');
 
-  if(!data.length){
-    lbl.textContent='нет чекинов';
-    cta.textContent='Первый чекин'; cta.disabled=false;
-    body.innerHTML=`<div class="empty u d2"><div class="empty-icon">◎</div>Пройди первый чекин —<br>граф появится после нескольких записей</div>`;
+  if(data.length < 3){
+    const s = loadSettings();
+    const isWeekly = s.frequency === 'weekly';
+    const subtitle = isWeekly
+      ? 'Заполняй чекин каждую неделю —<br>через 3 записи увидишь первые закономерности'
+      : 'Заполняй чекин каждый день —<br>через 3 записи увидишь первые закономерности';
+    const n = data.length;
+    const pct = (n / 3 * 100).toFixed(0);
+    lbl.textContent = n === 0 ? 'нет чекинов' : `последний: ${fmt(data[n-1].date)}`;
+    cta.textContent = n === 0 ? 'Заполнить сейчас' : 'Заполнить ещё';
+    cta.disabled = false;
+
+    let scoreHtml = '';
+    if(n > 0){
+      const sc = calcScore(data[n-1].answers);
+      scoreHtml = `
+        <div class="score-card u d2" style="margin-bottom:14px">
+          <div class="score-top">
+            <div style="display:flex;align-items:flex-end;gap:3px">
+              <div class="score-big">${sc}</div>
+              <div class="score-denom">/10</div>
+            </div>
+            <div style="text-align:right">
+              <div class="score-sub">${n === 1 ? 'первый чекин' : n + ' чекина'}</div>
+            </div>
+          </div>
+          <div class="score-bar"><div class="score-bar-fill" style="width:${(sc/10*100).toFixed(0)}%"></div></div>
+        </div>`;
+    }
+
+    body.innerHTML = scoreHtml + `
+      <div class="u d${n > 0 ? 3 : 2}" style="background:#161210;border:1px solid rgba(245,243,239,.06);padding:28px 20px;text-align:center">
+        <div style="font-size:60px;margin-bottom:16px;line-height:1">🌱</div>
+        <div style="font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px;color:#f5f3ef">Начни отслеживать<br>своё состояние</div>
+        <div style="font-size:12px;color:rgba(245,243,239,.35);font-weight:300;line-height:1.75;margin-bottom:24px">${subtitle}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+          <div style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.12em;color:rgba(245,243,239,.22)">ПРОГРЕСС</div>
+          <div style="font-family:'Fira Code',monospace;font-size:9px;color:#e05535">Запись ${n + 1} из 3</div>
+        </div>
+        <div style="height:2px;background:rgba(245,243,239,.06);border-radius:1px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#e05535,#ff8a65);border-radius:1px;transition:width .9s cubic-bezier(.77,0,.175,1)"></div>
+        </div>
+      </div>`;
     return;
   }
 
@@ -767,11 +823,23 @@ function updProg(){
   document.getElementById('save-btn').disabled=n<N;
 }
 
-function saveCheckin(){
+async function saveCheckin(){
   const data=load();
   const note=document.getElementById('note-field').value.trim();
-  data.push({date:new Date().toISOString(), answers:{...answers}, note:note||null});
+  const entry={date:new Date().toISOString(), answers:{...answers}, note:note||null};
+  data.push(entry);
   save(data);
+  if(currentUser){
+    try{
+      await sb.from('checkins').insert({
+        user_id: currentUser.id,
+        date: entry.date,
+        answers: entry.answers,
+        note: entry.note,
+        score: calcScore(entry.answers)
+      });
+    }catch(e){ console.warn('Supabase save failed:', e); }
+  }
   showResult();
 }
 
@@ -1413,11 +1481,141 @@ function saveInsightNote(id, placeholder){
 }
 </script>
 <script>
+// ── SUPABASE SYNC ──
+const SUPABASE_URL = 'https://edejcduktmvmsjhlpmts.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Cl5hKeOqwzMweeinTteLFw_-qxfiGw6';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+
+async function initAuth(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    currentUser = session.user;
+    migrateLocalToSupabase();
+  }
+  updateAccountSection();
+  sb.auth.onAuthStateChange((_event, session) => {
+    const wasLoggedIn = !!currentUser;
+    currentUser = session ? session.user : null;
+    if(currentUser && !wasLoggedIn) migrateLocalToSupabase();
+    updateAccountSection();
+  });
+}
+
+function openSyncModal(){
+  if(document.getElementById('sync-modal-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'sync-modal-overlay';
+  overlay.id = 'sync-modal-overlay';
+  overlay.innerHTML = `
+    <div class="sync-modal">
+      <div class="sync-modal-title">СИНХРОНИЗАЦИЯ ДАННЫХ</div>
+      <button class="sync-google-btn" onclick="signInWithGoogle()">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+        Войти через Google
+      </button>
+      <div class="sync-divider">ИЛИ</div>
+      <input class="sync-email-input" id="sync-email" type="email" placeholder="your@email.com" autocomplete="email">
+      <button class="cta" id="sync-email-btn" onclick="signInWithEmail()" style="width:100%">Отправить ссылку</button>
+      <div id="sync-msg" class="sync-msg"></div>
+      <button onclick="closeSyncModal()" style="margin-top:20px;width:100%;background:transparent;border:none;color:rgba(245,243,239,.25);font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.1em;cursor:pointer;padding:8px">ОТМЕНА</button>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target===overlay) closeSyncModal(); });
+  document.querySelector('.phone').appendChild(overlay);
+}
+
+function closeSyncModal(){
+  const o = document.getElementById('sync-modal-overlay');
+  if(o) o.remove();
+}
+
+async function signInWithGoogle(){
+  const msgEl = document.getElementById('sync-msg');
+  if(msgEl){ msgEl.style.display='none'; }
+  try{
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.href }
+    });
+    if(error) throw error;
+  }catch(e){
+    if(msgEl){ msgEl.textContent=e.message||'Ошибка входа'; msgEl.className='sync-msg err'; msgEl.style.display='block'; }
+  }
+}
+
+async function signInWithEmail(){
+  const emailEl = document.getElementById('sync-email');
+  const msgEl = document.getElementById('sync-msg');
+  const btn = document.getElementById('sync-email-btn');
+  const email = emailEl ? emailEl.value.trim() : '';
+  if(!email || !email.includes('@')){
+    msgEl.textContent='Введи корректный email'; msgEl.className='sync-msg err'; msgEl.style.display='block';
+    return;
+  }
+  btn.disabled=true; btn.textContent='...';
+  try{
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.href } });
+    if(error) throw error;
+    msgEl.textContent='✓ Ссылка отправлена — проверь почту'; msgEl.className='sync-msg ok'; msgEl.style.display='block';
+    btn.textContent='Отправлено';
+  }catch(e){
+    msgEl.textContent=e.message||'Ошибка отправки'; msgEl.className='sync-msg err'; msgEl.style.display='block';
+    btn.disabled=false; btn.textContent='Отправить ссылку';
+  }
+}
+
+async function migrateLocalToSupabase(){
+  if(!currentUser) return;
+  const data = load();
+  if(!data.length) return;
+  try{
+    const rows = data.map(d=>({
+      user_id: currentUser.id,
+      date: d.date,
+      answers: d.answers,
+      note: d.note||null,
+      score: calcScore(d.answers)
+    }));
+    await sb.from('checkins').upsert(rows, { onConflict: 'user_id,date', ignoreDuplicates: true });
+  }catch(e){ console.warn('Migration failed:', e); }
+}
+
+function updateAccountSection(){
+  const el = document.getElementById('account-section');
+  if(!el) return;
+  if(currentUser){
+    const label = currentUser.email || currentUser.user_metadata?.full_name || currentUser.id.slice(0,8)+'…';
+    el.innerHTML = `
+      <div class="settings-row" style="cursor:default">
+        <div class="settings-label" style="font-size:12px;color:rgba(245,243,239,.45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px">${label}</div>
+        <div style="font-family:'Fira Code',monospace;font-size:8px;color:#5c8c6e;letter-spacing:.1em;flex-shrink:0">СИНХР ✓</div>
+      </div>
+      <div class="settings-row" onclick="signOut()">
+        <div class="settings-label" style="color:rgba(245,243,239,.45)">Выйти из аккаунта</div>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="settings-row" onclick="openSyncModal()">
+        <div class="settings-label">Синхронизировать данные</div>
+        <div style="font-size:16px;opacity:.3">↑</div>
+      </div>`;
+  }
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  currentUser = null;
+  updateAccountSection();
+}
+</script>
+<script>
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 renderMain();
 initNotifications();
+initAuth();
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
 </body>
