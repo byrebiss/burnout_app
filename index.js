@@ -137,44 +137,13 @@ app.post('/checkins/get', async (req, res) => {
   return res.json({ ok: true, checkins: data });
 });
 
-// ── Удаление всех чекинов пользователя ──
-app.post('/checkins/delete', async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: 'Missing initData' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  await fetch(`${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}`, {
-    method: 'DELETE',
-    headers: {
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-    },
-  });
-
-  return res.json({ ok: true });
-});
-
 // ── Сохранение напоминания ──
 app.post('/reminder/set', async (req, res) => {
-  const { initData, hour, minute, enabled, timezone } = req.body;
+  const { initData, hour, minute, enabled } = req.body;
   if (!initData) return res.status(400).json({ error: 'Missing initData' });
 
   const user = verifyTelegramData(initData);
   if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  // Переводим локальное время пользователя в UTC
-  const tz = timezone || 'Europe/Moscow';
-  const now = new Date();
-  // Получаем UTC offset для данного timezone в минутах
-  const localDate = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
-  const offsetMinutes = (localDate - utcDate) / 60000;
-  const offsetHours = offsetMinutes / 60;
-
-  let utcHour = ((hour ?? 20) - offsetHours + 24) % 24;
-  let utcMinute = minute ?? 0;
 
   await fetch(`${SUPABASE_URL}/rest/v1/reminders`, {
     method: 'POST',
@@ -186,9 +155,8 @@ app.post('/reminder/set', async (req, res) => {
     },
     body: JSON.stringify({
       tg_id: user.id,
-      hour: Math.round(utcHour),
-      minute: utcMinute,
-      timezone: tz,
+      hour: hour ?? 20,
+      minute: minute ?? 0,
       enabled: enabled !== false,
       updated_at: new Date().toISOString(),
     }),
@@ -281,7 +249,24 @@ app.get('/admin/stats', async (req, res) => {
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
-  const { message } = req.body;
+  const { message, callback_query } = req.body;
+
+  // Обработка callback (кнопка "Написать разработчику")
+  if (callback_query?.data === 'feedback') {
+    await tg('answerCallbackQuery', { callback_query_id: callback_query.id });
+    await tg('sendMessage', {
+      chat_id: callback_query.from.id,
+      parse_mode: 'HTML',
+      text:
+`✉️ <b>Обратная связь</b>
+
+Напиши своё мнение, идею или замечание — следующим сообщением.
+
+Всё анонимно: я не вижу кто пишет, только текст сообщения 👇`,
+    });
+    return;
+  }
+
   if (!message) return;
 
   const chatId = message.chat.id;
@@ -305,13 +290,33 @@ app.post('/webhook', async (req, res) => {
 • График динамики и инсайты
 • Данные привязаны к твоему Telegram — доступны с любого устройства
 
-После 3 чекинов появятся первые закономерности 📊`,
+После 3 чекинов появятся первые закономерности 📊
+
+——
+<i>⚗️ Это тестовая версия. Все данные анонимны. Если есть идеи или замечания — нажми кнопку ниже и напиши прямо здесь, мне важна твоя обратная связь 🙏</i>`,
       reply_markup: {
-        inline_keyboard: [[
-          { text: '🚀 Открыть детектор', web_app: { url: APP_URL } }
-        ]]
+        inline_keyboard: [
+          [{ text: '🚀 Открыть детектор', web_app: { url: APP_URL } }],
+          [{ text: '✉️ Написать разработчику', callback_data: 'feedback' }]
+        ]
       }
     });
+  }
+
+  // Анонимная пересылка фидбека разработчику
+  // Игнорируем команды и сообщения от самого себя
+  if (!text.startsWith('/') && String(userId) !== String(ADMIN_TG_ID) && ADMIN_TG_ID) {
+    await tg('sendMessage', {
+      chat_id: ADMIN_TG_ID,
+      parse_mode: 'HTML',
+      text: `💬 <b>Анонимный фидбек:</b>\n\n${text}`,
+    });
+    await tg('sendMessage', {
+      chat_id: chatId,
+      parse_mode: 'HTML',
+      text: '✅ Спасибо! Сообщение отправлено анонимно. Я обязательно прочитаю 🙏',
+    });
+    return;
   }
 
   // Статистика только для тебя
