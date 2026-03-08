@@ -990,23 +990,26 @@ function cancelDelete(idx){
   if(btn) btn.style.display='inline';
   if(confirm) confirm.style.display='none';
 }
-function doDeleteCheckin(idx){
+async function doDeleteCheckin(idx){
   const data = load();
   const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
   const item = data.splice(idx, 1)[0];
   item._deletedAt = new Date().toISOString();
-  // Проверяем нет ли уже такой даты в корзине (защита от дублей)
   const alreadyInTrash = trash.some(t => t.date.slice(0,19) === item.date.slice(0,19));
   if (!alreadyInTrash) trash.unshift(item);
   save(data);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
-  // Удаляем с сервера
+  // Удаляем с сервера — ждём чтобы при следующем sync не вернулось
   if (window.Telegram?.WebApp?.initData) {
-    fetch(`${RAILWAY_URL}/checkin/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: window.Telegram.WebApp.initData, date: item.date }),
-    }).catch(e => console.warn('Server delete failed:', e));
+    try {
+      const r = await fetch(`${RAILWAY_URL}/checkin/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: window.Telegram.WebApp.initData, date: item.date }),
+      });
+      const result = await r.json();
+      console.log('[delete]', result);
+    } catch(e) { console.warn('Server delete failed:', e); }
   }
   showScreen('screen-history');
   showHistory();
