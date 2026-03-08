@@ -137,6 +137,25 @@ app.post('/checkins/get', async (req, res) => {
   return res.json({ ok: true, checkins: data });
 });
 
+// ── Удаление всех чекинов пользователя ──
+app.post('/checkins/delete', async (req, res) => {
+  const { initData } = req.body;
+  if (!initData) return res.status(400).json({ error: 'Missing initData' });
+
+  const user = verifyTelegramData(initData);
+  if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+  await fetch(`${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+    },
+  });
+
+  return res.json({ ok: true });
+});
+
 // ── Сохранение напоминания ──
 app.post('/reminder/set', async (req, res) => {
   const { initData, hour, minute, enabled, timezone } = req.body;
