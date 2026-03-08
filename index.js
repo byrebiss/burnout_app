@@ -110,7 +110,7 @@ app.post('/checkin', async (req, res) => {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_SERVICE_KEY,
       'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'return=minimal',
+      'Prefer': 'resolution=merge-duplicates,return=minimal',
     },
     body: JSON.stringify({
       tg_id: user.id,
