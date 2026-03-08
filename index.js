@@ -253,21 +253,30 @@ app.post('/checkin/delete', async (req, res) => {
   const user = verifyTelegramData(initData);
   if (!user) return res.status(401).json({ error: 'Invalid initData' });
 
-  const datePrefix = date.slice(0, 19); // без миллисекунд
+  // Удаляем по диапазону: от начала секунды до конца секунды
+  const datePrefix = date.slice(0, 19); // "2024-01-15T10:23:45"
+  const dateFrom = datePrefix + '.000000';
+  const dateTo   = datePrefix + '.999999';
+
+  console.log(`[delete] user=${user.id} date=${datePrefix}`);
+
   const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}&date=like.${encodeURIComponent(datePrefix + '%')}`,
+    `${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}&date=gte.${encodeURIComponent(dateFrom)}&date=lte.${encodeURIComponent(dateTo)}`,
     {
       method: 'DELETE',
       headers: {
         'apikey': SUPABASE_SERVICE_KEY,
         'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-        'Prefer': 'return=minimal',
+        'Prefer': 'return=representation',
       },
     }
   );
 
-  if (!response.ok) return res.status(500).json({ error: 'DB error' });
-  return res.json({ ok: true });
+  const result = await response.json().catch(() => []);
+  console.log(`[delete] result status=${response.status}`, result);
+
+  if (!response.ok) return res.status(500).json({ error: 'DB error', detail: result });
+  return res.json({ ok: true, deleted: Array.isArray(result) ? result.length : 0 });
 });
 
 // ── Удаление всех чекинов пользователя ──
