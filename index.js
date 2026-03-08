@@ -110,7 +110,7 @@ app.post('/checkin', async (req, res) => {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_SERVICE_KEY,
       'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'resolution=merge-duplicates,return=minimal',
+      'Prefer': 'return=minimal',
     },
     body: JSON.stringify({
       tg_id: user.id,
@@ -245,6 +245,31 @@ app.get('/admin/stats', async (req, res) => {
   return res.json({ uniqueUsers, todayUsers, weekActive, totalCheckins, remindersOn });
 });
 
+// ── Удаление одного чекина по дате ──
+app.post('/checkin/delete', async (req, res) => {
+  const { initData, date } = req.body;
+  if (!initData || !date) return res.status(400).json({ error: 'Missing data' });
+
+  const user = verifyTelegramData(initData);
+  if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+  const datePrefix = date.slice(0, 19); // без миллисекунд
+  const response = await fetch(
+    `${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}&date=like.${encodeURIComponent(datePrefix + '%')}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Prefer': 'return=minimal',
+      },
+    }
+  );
+
+  if (!response.ok) return res.status(500).json({ error: 'DB error' });
+  return res.json({ ok: true });
+});
+
 // ── Удаление всех чекинов пользователя ──
 app.post('/checkins/delete', async (req, res) => {
   const { initData } = req.body;
@@ -270,7 +295,19 @@ app.post('/checkins/delete', async (req, res) => {
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
-  const { message } = req.body;
+  const { message, callback_query } = req.body;
+
+  // ── Обработка кнопки "Написать разработчику" ──
+  if (callback_query?.data === 'feedback') {
+    await tg('answerCallbackQuery', { callback_query_id: callback_query.id });
+    await tg('sendMessage', {
+      chat_id: callback_query.from.id,
+      parse_mode: 'HTML',
+      text: `✉️ <b>Обратная связь</b>\n\nНапиши своё мнение, идею или замечание — следующим сообщением.\n\nВсё анонимно: я не вижу кто пишет, только текст 👇`,
+    });
+    return;
+  }
+
   if (!message) return;
 
   const chatId = message.chat.id;
@@ -294,13 +331,31 @@ app.post('/webhook', async (req, res) => {
 • График динамики и инсайты
 • Данные привязаны к твоему Telegram — доступны с любого устройства
 
-После 3 чекинов появятся первые закономерности 📊`,
+После 3 чекинов появятся первые закономерности 📊
+
+——
+<i>⚗️ Это тестовая версия. Все данные анонимны. Если есть идеи или замечания — жми кнопку ниже 🙏</i>`,
       reply_markup: {
-        inline_keyboard: [[
-          { text: '🚀 Открыть детектор', web_app: { url: APP_URL } }
-        ]]
+        inline_keyboard: [
+          [{ text: '🚀 Открыть детектор', web_app: { url: APP_URL } }],
+          [{ text: '✉️ Написать разработчику', callback_data: 'feedback' }],
+        ]
       }
     });
+  }
+
+  // ── Анонимный фидбек — пересылаем разработчику ──
+  if (!text.startsWith('/') && String(userId) !== String(ADMIN_TG_ID) && ADMIN_TG_ID) {
+    await tg('sendMessage', {
+      chat_id: ADMIN_TG_ID,
+      parse_mode: 'HTML',
+      text: `💬 <b>Анонимный фидбек:</b>\n\n${text}`,
+    });
+    await tg('sendMessage', {
+      chat_id: chatId,
+      text: '✅ Спасибо! Сообщение отправлено анонимно 🙏',
+    });
+    return;
   }
 
   // Статистика только для тебя
