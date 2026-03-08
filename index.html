@@ -995,11 +995,13 @@ function doDeleteCheckin(idx){
   const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
   const item = data.splice(idx, 1)[0];
   item._deletedAt = new Date().toISOString();
-  trash.unshift(item);
+  // Проверяем нет ли уже такой даты в корзине (защита от дублей)
+  const alreadyInTrash = trash.some(t => t.date.slice(0,19) === item.date.slice(0,19));
+  if (!alreadyInTrash) trash.unshift(item);
   save(data);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
   // Удаляем с сервера
-  if(window.Telegram?.WebApp?.initData){
+  if (window.Telegram?.WebApp?.initData) {
     fetch(`${RAILWAY_URL}/checkin/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1019,25 +1021,6 @@ function purgeOldTrash(){
   return fresh;
 }
 
-function permanentlyDeleteFromTrash(trashIdx){
-  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
-  // показываем подтверждение
-  const wrap = document.getElementById(`perm-del-${trashIdx}`);
-  if(!wrap) return;
-  wrap.innerHTML = `
-    <span style="color:rgba(245,243,239,.35);font-size:11px;margin-right:8px">Удалить навсегда?</span>
-    <span onclick="confirmPermanentDelete(${trashIdx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Да</span>
-    <span style="color:rgba(245,243,239,.2);margin:0 6px">·</span>
-    <span onclick="showTrash()" style="color:rgba(245,243,239,.35);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Нет</span>`;
-}
-
-function confirmPermanentDelete(trashIdx){
-  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
-  trash.splice(trashIdx, 1);
-  localStorage.setItem('bd3-trash', JSON.stringify(trash));
-  showTrash();
-}
-
 function showTrash(){
   showScreen('screen-trash');
   const trash = purgeOldTrash();
@@ -1049,25 +1032,32 @@ function showTrash(){
   list.innerHTML = '<div class="h-list">' + trash.map((d,i)=>{
     const sc = calcScore(d.answers);
     const daysLeft = d._deletedAt
-      ? Math.ceil((new Date(d._deletedAt).getTime() + 10*864e5 - Date.now()) / 864e5)
+      ? Math.max(1, Math.ceil((new Date(d._deletedAt).getTime() + 10*864e5 - Date.now()) / 864e5))
       : 10;
-    return `<div class="h-item" style="cursor:pointer" onclick="showTrashDetail(${i})">
-      <div style="flex:1">
+    return `<div class="h-item" style="align-items:flex-start">
+      <div style="flex:1;cursor:pointer" onclick="showTrashDetail(${i})">
         <div class="h-date">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
-        ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.3);margin-top:6px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px'>${d.note}</div>`:''}
-        <div class="h-cats" style="margin-top:6px">
+        ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.3);margin-top:4px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px'>${d.note}</div>`:''}
+        <div class="h-cats" style="margin-top:5px">
           ${CATEGORIES.map(cat=>`<div class="h-cat">${cat.name.slice(0,3)}:<b>${catScore(d.answers,cat.id)}</b></div>`).join('')}
         </div>
-        <div style="font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.2);margin-top:5px">удалится через ${daysLeft} дн.</div>
-        <div id="perm-del-${i}" style="margin-top:6px"></div>
+        <div style="font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.18);margin-top:4px">удалится через ${daysLeft} дн.</div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <div class="h-score">${sc}<span>/10</span></div>
-        <button onclick="event.stopPropagation();restoreCheckin(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(245,243,239,.15);color:rgba(245,243,239,.4);padding:4px 10px;cursor:pointer">ВЕРНУТЬ</button>
-        <button onclick="event.stopPropagation();permanentlyDeleteFromTrash(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(224,85,53,.2);color:rgba(224,85,53,.5);padding:4px 10px;cursor:pointer">× УДАЛИТЬ</button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;margin-left:8px">
+        <div class="h-score" style="cursor:pointer" onclick="showTrashDetail(${i})">${sc}<span>/10</span></div>
+        <button onclick="restoreCheckin(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(245,243,239,.15);color:rgba(245,243,239,.4);padding:4px 10px;cursor:pointer;white-space:nowrap">ВЕРНУТЬ</button>
+        <button onclick="askPermDelete(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(224,85,53,.25);color:rgba(224,85,53,.55);padding:4px 10px;cursor:pointer;white-space:nowrap">× УДАЛИТЬ</button>
       </div>
     </div>`;
   }).join('') + '</div>';
+}
+
+function askPermDelete(i){
+  if(!confirm('Удалить навсегда? Это нельзя отменить.')) return;
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  trash.splice(i, 1);
+  localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  showTrash();
 }
 
 function showTrashDetail(trashIdx){
@@ -1094,12 +1084,18 @@ function showTrashDetail(trashIdx){
       }).join('')}
     </div>
     ${d.note?`<div style="width:260px;margin-top:24px;text-align:left;border-left:2px solid #e05535;padding:10px 12px;background:#161210;font-size:12px;color:rgba(245,243,239,.55);font-style:italic;line-height:1.7">${d.note}</div>`:''}
-    <div style="width:260px;text-align:center;margin-top:20px;display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
+    <div style="width:260px;display:flex;flex-direction:column;gap:12px;margin-top:24px;margin-bottom:24px;text-align:center">
       <button onclick="restoreCheckin(${trashIdx})" style="background:transparent;border:none;color:rgba(245,243,239,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">Восстановить чекин</button>
-      <div id="perm-del-detail">
-        <button onclick="permanentlyDeleteFromTrashDetail(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
-      </div>
+      <button onclick="askPermDeleteFromDetail(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
     </div>`;
+}
+
+function askPermDeleteFromDetail(trashIdx){
+  if(!confirm('Удалить навсегда? Это нельзя отменить.')) return;
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  trash.splice(trashIdx, 1);
+  localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  showTrash(); // возвращаемся в корзину
 }
 
 function restoreCheckin(trashIdx){
@@ -1112,16 +1108,6 @@ function restoreCheckin(trashIdx){
   save(data);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
   showTrash();
-}
-
-function permanentlyDeleteFromTrashDetail(trashIdx){
-  const wrap = document.getElementById('perm-del-detail');
-  if(!wrap) return;
-  wrap.innerHTML = `
-    <span style="color:rgba(245,243,239,.35);font-size:11px;display:block;margin-bottom:8px">Удалить навсегда?</span>
-    <span onclick="confirmPermanentDelete(${trashIdx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Да, удалить</span>
-    <span style="color:rgba(245,243,239,.2);margin:0 10px">·</span>
-    <span onclick="showTrashDetail(${trashIdx})" style="color:rgba(245,243,239,.35);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Нет</span>`;
 }
 
 
@@ -1708,7 +1694,7 @@ async function syncFromServer(initData) {
     if (!data.ok || !data.checkins.length) return;
     const local = load();
     const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
-    // Нормализуем до секунд, исключаем удалённые
+    // Нормализуем до секунд — исключаем уже существующие и удалённые в корзину
     const localDates = new Set(local.map(d => d.date.slice(0, 19)));
     const trashedDates = new Set(trash.map(d => d.date.slice(0, 19)));
     const newFromServer = data.checkins
