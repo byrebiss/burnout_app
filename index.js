@@ -1,413 +1,1808 @@
-const express = require('express');
-const crypto = require('crypto');
-const app = express();
-app.use(express.json());
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Выгорание">
+  <meta name="theme-color" content="#0D0B09">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.png">
 
-const TOKEN = process.env.BOT_TOKEN;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const ADMIN_TG_ID = process.env.ADMIN_TG_ID; // твой Telegram ID для /stats
-const APP_URL = 'https://byrebiss.github.io/burnout_app';
+<title>Детектор выгорания</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0d0b09;
+  --surface:#161210;
+  --ink:#f5f3ef;
+  --ink2:rgba(245,243,239,.55);
+  --ink3:rgba(245,243,239,.28);
+  --red:#e05535;
+  --line:rgba(245,243,239,.06);
+  --line2:rgba(245,243,239,.12);
+  --phone:390px;
+}
+html,body{
+  height:100%;background:#000;color:#f5f3ef;
+  display:flex;justify-content:center;align-items:flex-start;
+  overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif;
+}
+.phone{
+  position:relative;width:var(--phone);height:100vh;max-height:844px;
+  background:#0d0b09;color:#f5f3ef;overflow:hidden;flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(255,255,255,.07),0 32px 80px rgba(0,0,0,.9);
+}
+.phone::before{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 80% 45% at 50% -5%,rgba(224,85,53,.1) 0%,transparent 60%);
+}
+@media(max-width:420px){.phone{width:100vw;height:100vh;max-height:none;box-shadow:none}}
 
-// ── Telegram API helper ──
-async function tg(method, body) {
-  const res = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return res.json();
+.screen{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  overflow:hidden;z-index:1;background:#0d0b09;color:#f5f3ef;
+  transition:transform .4s cubic-bezier(.77,0,.175,1),opacity .4s ease;
+}
+.screen.hidden{transform:translateX(100%);opacity:0;pointer-events:none}
+.screen.exit{transform:translateX(-55%);opacity:0;pointer-events:none}
+
+.scroll{
+  flex:1;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;padding:0 22px 40px;color:#f5f3ef;
+}
+.scroll::-webkit-scrollbar{display:none}
+
+/* TOPBAR */
+.topbar{
+  padding:8px 16px;display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;border-bottom:1px solid var(--line);
+  background:rgba(13,11,9,.9);backdrop-filter:blur(12px);position:relative;z-index:2;
+}
+.topbar-title{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28)}
+.icon-btn{
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  border:none;background:transparent;color:rgba(245,243,239,.6);cursor:pointer;
+  font-size:18px;transition:color .2s;
+}
+.icon-btn:hover{color:#f5f3ef}
+
+/* MAIN */
+#screen-main .scroll{padding-top:28px}
+.main-eyebrow{
+  font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.25em;
+  color:#e05535;margin-bottom:10px;display:flex;align-items:center;gap:10px;
+}
+.main-eyebrow::after{content:'';flex:1;height:1px;background:var(--line)}
+.main-title{font-size:40px;font-weight:800;line-height:.95;letter-spacing:-.03em;margin-bottom:8px;color:#f5f3ef}
+.main-title em{color:#e05535;font-style:normal}
+.main-meta{font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.28);margin-bottom:28px}
+
+/* SCORE CARD */
+.score-card{
+  background:#161210;border:1px solid var(--line2);
+  padding:18px;margin-bottom:14px;position:relative;overflow:hidden;
+}
+.score-card::after{
+  content:'';position:absolute;right:-20px;bottom:-20px;
+  width:120px;height:120px;border-radius:50%;
+  background:radial-gradient(circle,rgba(224,85,53,.1),transparent 70%);
+}
+.score-top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.score-big{font-size:60px;font-weight:800;line-height:1;letter-spacing:-.04em;color:#e05535}
+.score-denom{font-size:18px;font-weight:300;color:rgba(245,243,239,.3);margin-bottom:6px}
+.score-delta{font-family:'Fira Code',monospace;font-size:11px;color:#e05535;margin-bottom:4px}
+.score-sub{font-size:11px;color:rgba(245,243,239,.3);font-weight:300}
+.score-bar{height:2px;background:var(--line);border-radius:1px;overflow:hidden}
+.score-bar-fill{height:100%;background:linear-gradient(90deg,#e05535,#ff8a65);border-radius:1px;transition:width .9s cubic-bezier(.77,0,.175,1)}
+
+/* CHART */
+.chart-card{background:#161210;border:1px solid var(--line);padding:18px;margin-bottom:14px}
+.chart-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.chart-lbl{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28)}
+.pills{display:flex;gap:4px}
+.pill{
+  font-family:'Fira Code',monospace;font-size:8px;padding:3px 9px;
+  border:1px solid var(--line2);background:transparent;color:rgba(245,243,239,.3);
+  cursor:pointer;transition:all .15s;border-radius:2px;
+}
+.pill.on{background:#e05535;color:#fff;border-color:#e05535}
+.chart-wrap{height:110px}
+canvas#chart{width:100%;height:100%}
+.chart-foot{display:flex;justify-content:space-between;margin-top:6px}
+.chart-ft{font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.28)}
+
+/* AXES */
+.axes-card{margin-bottom:14px}
+.sec-head{
+  font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;
+  color:rgba(245,243,239,.28);margin-bottom:10px;
+  display:flex;align-items:center;gap:8px;
+}
+.sec-head::after{content:'';flex:1;height:1px;background:var(--line);display:block}
+.axis-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.axis-row:last-child{border-bottom:none}
+.axis-cat{font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.06em;color:rgba(245,243,239,.3);width:100px;flex-shrink:0}
+.axis-track{flex:1;height:2px;background:var(--line);border-radius:1px;overflow:hidden}
+.axis-fill{height:100%;background:#e05535;border-radius:1px;transition:width .7s cubic-bezier(.77,0,.175,1)}
+.axis-val{font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.55);width:22px;text-align:right;flex-shrink:0}
+
+/* BOTTOM */
+.bottom-bar{padding:14px 20px;flex-shrink:0;border-top:1px solid var(--line);background:#0d0b09}
+.cta{
+  width:100%;padding:16px;background:#e05535;color:#fff;
+  font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:700;
+  border:none;cursor:pointer;border-radius:0;transition:opacity .2s,transform .1s;
+}
+.cta:hover{opacity:.88}
+.cta:active{transform:scale(.98)}
+.cta:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.cta.danger{background:transparent;border:1px solid rgba(224,85,53,.25);color:#e05535;font-weight:500;font-size:12px;margin-top:8px}
+
+.empty{text-align:center;padding:48px 16px;color:rgba(245,243,239,.28);font-size:13px;font-weight:300;line-height:1.9}
+.empty-icon{font-size:36px;margin-bottom:12px;opacity:.35}
+
+/* CHECKIN */
+#screen-checkin .scroll{padding-top:20px}
+.ck-week{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.18em;color:#e05535;margin-bottom:8px}
+.ck-title{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:6px;color:#f5f3ef}
+.ck-sub{font-size:12px;color:rgba(245,243,239,.28);font-weight:300;margin-bottom:20px}
+
+/* CATEGORY GROUP */
+.cat-group{margin-bottom:8px}
+.cat-header{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px;background:rgba(224,85,53,.08);
+  border:1px solid rgba(224,85,53,.15);border-bottom:none;
+}
+.cat-name{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:#e05535}
+.cat-count{font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.25);margin-left:auto}
+
+.q-block{
+  padding:14px;background:#161210;
+  border:1px solid var(--line);border-top:none;
+  transition:border-color .2s;color:#f5f3ef;
+}
+.cat-group .q-block:last-child{border-bottom:1px solid var(--line)}
+.q-block.done{border-left-color:rgba(224,85,53,.4)}
+.q-subcat{font-family:'Plus Jakarta Sans',sans-serif;font-size:15px;font-weight:600;color:#f5f3ef;margin-bottom:12px;letter-spacing:-.01em}
+.q-text{font-size:13px;font-weight:500;margin-bottom:11px;line-height:1.4;color:#f5f3ef}
+.q-row{display:flex;gap:5px}
+.q-btn{
+  flex:1;height:34px;border:1.5px solid var(--line2);background:transparent;
+  color:rgba(245,243,239,.4);font-family:'Fira Code',monospace;font-size:10px;
+  cursor:pointer;transition:all .12s;border-radius:2px;
+}
+.q-btn:hover{border-color:rgba(245,243,239,.5);color:#f5f3ef}
+.q-btn.sel{background:#e05535;border-color:#e05535;color:#fff}
+.q-hint{display:flex;justify-content:space-between;margin-top:4px}
+.q-hint span{font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.2)}
+
+.ck-footer{padding:14px 20px;border-top:1px solid var(--line);flex-shrink:0;background:#0d0b09}
+.prog-bar{height:2px;background:var(--line);margin-bottom:8px;border-radius:1px;overflow:hidden}
+.prog-fill{height:100%;background:#e05535;border-radius:1px;transition:width .25s ease}
+.prog-txt{font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.28);margin-bottom:10px;letter-spacing:.1em}
+
+/* RESULT */
+#screen-result .scroll{
+  padding-top:36px;display:flex;flex-direction:column;align-items:center;text-align:center;
+}
+.res-icon{font-size:64px;margin-bottom:16px}
+.res-score{font-size:72px;font-weight:800;letter-spacing:-.04em;color:#e05535;line-height:1;margin-bottom:4px}
+.res-meta{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.15em;color:rgba(245,243,239,.28);margin-bottom:20px}
+.res-msg{font-size:17px;font-weight:700;line-height:1.3;margin-bottom:8px;max-width:260px;color:#f5f3ef}
+.res-sub{font-size:12px;color:rgba(245,243,239,.5);font-weight:300;line-height:1.7;max-width:240px;margin-bottom:28px}
+.res-axes{width:260px;text-align:left;margin-bottom:20px}
+.ra-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)}
+.ra-row:last-child{border-bottom:none}
+.ra-name{font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.08em;color:rgba(245,243,239,.3);width:100px;flex-shrink:0}
+.ra-dots{display:flex;gap:4px}
+.ra-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(245,243,239,.12)}
+.ra-dot.on{background:#e05535;border-color:#e05535}
+
+/* HISTORY */
+.h-list{display:flex;flex-direction:column;gap:5px;margin-top:18px}
+.settings-group{background:#161210;border:1px solid var(--line);margin-top:8px}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--line)}
+.settings-row:last-child{border-bottom:none}
+.settings-label{font-size:13px;color:#f5f3ef;font-weight:400}
+.settings-check{font-size:14px;color:#e05535;width:20px;text-align:right}
+.h-item{background:#161210;border:1px solid var(--line);padding:12px;display:flex;justify-content:space-between;align-items:center;color:#f5f3ef}
+.h-date{font-family:'Fira Code',monospace;font-size:10px;color:rgba(245,243,239,.3);margin-bottom:6px}
+.h-score{font-size:32px;font-weight:800;color:#e05535}
+.h-score span{font-size:12px;font-weight:300;color:rgba(245,243,239,.3)}
+.h-cats{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;margin-top:6px}
+.h-cat{font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.3)}
+.h-cat b{color:rgba(245,243,239,.6);font-weight:600}
+
+/* ANIM */
+@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.u{animation:up .35s ease forwards;opacity:0}
+.u.d1{animation-delay:.04s}.u.d2{animation-delay:.1s}.u.d3{animation-delay:.16s}.u.d4{animation-delay:.22s}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+.dot{width:5px;height:5px;border-radius:50%;background:#e05535;display:inline-block;animation:blink 2s infinite}
+.insight-card{background:#161210;border:1px solid var(--line);padding:16px;margin-bottom:6px}
+.insight-badge{display:inline-flex;align-items:center;gap:5px;font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;margin-bottom:8px;padding:3px 8px;border-radius:2px}
+.badge-yellow{background:rgba(255,193,7,.1);color:#ffc107;border:1px solid rgba(255,193,7,.2)}
+.badge-orange{background:rgba(255,120,0,.1);color:#ff7800;border:1px solid rgba(255,120,0,.2)}
+.badge-red{background:rgba(224,85,53,.1);color:#e05535;border:1px solid rgba(224,85,53,.2)}
+.badge-green{background:rgba(92,140,110,.1);color:#5c8c6e;border:1px solid rgba(92,140,110,.2)}
+.insight-cats{font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.3);margin-bottom:8px;letter-spacing:.08em}
+.insight-text{font-size:13px;line-height:1.6;color:#f5f3ef;font-weight:400;margin-bottom:10px}
+.insight-action{font-size:12px;color:rgba(245,243,239,.5);font-weight:300;border-left:2px solid #e05535;padding-left:10px;line-height:1.5}
+.checkin-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.85);display:flex;align-items:flex-end;justify-content:center}
+.checkin-modal-inner{background:#0d0b09;border:1px solid rgba(245,243,239,.08);width:390px;max-width:100%;padding:24px;padding-bottom:32px;max-height:80vh;overflow-y:auto}
+.checkin-modal-date{font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.3);margin-bottom:4px;letter-spacing:.1em}
+.checkin-modal-score{font-size:42px;font-weight:800;color:#e05535;line-height:1;margin-bottom:16px}
+.checkin-modal-note{font-size:13px;color:rgba(245,243,239,.6);font-style:italic;margin-bottom:16px;line-height:1.6;padding:10px;background:#161210;border-left:2px solid #e05535}
+.checkin-modal-close{font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.3);cursor:pointer;margin-bottom:20px;display:inline-block}
+.time-picker-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5)}
+.time-picker-modal{background:#161210;width:390px;max-width:100%;border:1px solid rgba(245,243,239,.1);position:absolute;}
+.time-picker-header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid rgba(245,243,239,.06)}
+.time-picker-body{display:flex;justify-content:center;align-items:center;gap:0;padding:0;height:220px;overflow:hidden;position:relative}
+.time-picker-body::before,.time-picker-body::after{content:'';position:absolute;left:0;right:0;height:80px;z-index:2;pointer-events:none}
+.time-picker-body::before{top:0;background:linear-gradient(#161210,transparent)}
+.time-picker-body::after{bottom:0;background:linear-gradient(transparent,#161210)}
+.time-picker-col{flex:1;overflow-y:scroll;height:220px;scroll-snap-type:y mandatory;scrollbar-width:none;-ms-overflow-style:none}
+.time-picker-col::-webkit-scrollbar{display:none}
+.time-picker-item{height:44px;display:flex;align-items:center;justify-content:center;font-family:'Fira Code',monospace;font-size:22px;color:rgba(245,243,239,.25);scroll-snap-align:center;transition:color .15s}
+.time-picker-item.active{color:#f5f3ef}
+.time-picker-sep{font-family:'Fira Code',monospace;font-size:24px;color:rgba(245,243,239,.3);padding:0 4px;line-height:220px}
+.time-picker-sel{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:44px;border-top:1px solid rgba(245,243,239,.1);border-bottom:1px solid rgba(245,243,239,.1);pointer-events:none;z-index:1}
+.no-insights{text-align:center;padding:48px 16px;color:rgba(245,243,239,.28);font-size:13px;font-weight:300;line-height:1.9}
+
+/* CONFIRM MODAL */
+.confirm-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center}
+.confirm-box{background:#161210;border:1px solid rgba(245,243,239,.1);border-bottom:none;width:390px;max-width:100%;padding:24px 24px 36px}
+.confirm-title{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28);margin-bottom:12px}
+.confirm-text{font-size:15px;font-weight:600;color:#f5f3ef;margin-bottom:24px;line-height:1.4}
+.confirm-btns{display:flex;gap:8px}
+.confirm-btn-cancel{flex:1;padding:14px;background:transparent;border:1px solid rgba(245,243,239,.12);color:rgba(245,243,239,.4);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+.confirm-btn-danger{flex:1;padding:14px;background:#e05535;border:none;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer}
+
+/* SYNC MODAL */
+.sync-modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.85);display:flex;align-items:flex-end;justify-content:center}
+.sync-modal{background:#0d0b09;border:1px solid rgba(245,243,239,.08);width:390px;max-width:100%;padding:24px;padding-bottom:40px}
+.sync-modal-title{font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.2em;color:rgba(245,243,239,.28);margin-bottom:20px}
+.sync-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.2);letter-spacing:.1em}
+.sync-divider::before,.sync-divider::after{content:'';flex:1;height:1px;background:rgba(245,243,239,.06)}
+.sync-google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:15px;background:#fff;color:#0d0b09;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:700;transition:opacity .2s}
+.sync-google-btn:hover{opacity:.88}
+.sync-email-input{width:100%;background:#161210;border:1px solid rgba(245,243,239,.1);color:#f5f3ef;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;padding:14px;outline:none;margin-bottom:8px;border-radius:0;-webkit-appearance:none}
+.sync-email-input::placeholder{color:rgba(245,243,239,.2)}
+.sync-msg{font-family:'Fira Code',monospace;font-size:9px;margin-top:10px;letter-spacing:.08em;display:none}
+.sync-msg.ok{color:#5c8c6e}.sync-msg.err{color:#e05535}
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- MAIN -->
+  <div class="screen" id="screen-main">
+    <div class="topbar">
+      <div style="width:34px"></div>
+      <div class="topbar-title"><span class="dot"></span>&nbsp; СОСТОЯНИЕ</div>
+      <div style="display:flex;gap:4px">
+        <button class="icon-btn" onclick="showInsights()" style="font-family:'Fira Code',monospace;font-size:16px;color:rgba(245,243,239,.5)">✦</button>
+        <button class="icon-btn" onclick="showHistory()" style="font-size:20px">≡</button>
+        <button class="icon-btn" onclick="showSettings()" style="font-size:16px;opacity:.5">⚙</button>
+      </div>
+    </div>
+    <div class="scroll">
+      <div class="u d1">
+        <div class="main-eyebrow">ДЕТЕКТОР ВЫГОРАНИЯ</div>
+        <div class="main-title">Твой<br><em>индекс</em></div>
+        <div class="main-meta" id="last-lbl">нет данных</div>
+      </div>
+      <div id="main-body"></div>
+    </div>
+    <div class="bottom-bar">
+      <button class="cta" id="main-cta" onclick="startCheckin()">Пройти чекин</button>
+    </div>
+  </div>
+
+  <!-- CHECKIN -->
+  <div class="screen hidden" id="screen-checkin">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-main')">←</button>
+      <div class="topbar-title">ЧЕКИН</div>
+      <div style="width:34px"></div>
+    </div>
+    <div class="scroll">
+      <div class="ck-week" id="ck-week">—</div>
+      <div class="ck-title">Как ты<br>сейчас?</div>
+      <div class="ck-sub">Отвечай честно — только ты видишь</div>
+      <div id="q-wrap"></div>
+    </div>
+    <div class="ck-footer">
+      <div class="prog-bar"><div class="prog-fill" id="prog" style="width:0%"></div></div>
+      <div class="prog-txt" id="prog-txt">ОТВЕЧЕНО 0 / 18</div>
+      <textarea id="note-field" placeholder="Что происходит на этой неделе? (необязательно)" style="width:100%;background:#161210;border:1px solid rgba(245,243,239,.1);color:#f5f3ef;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:300;padding:10px;resize:none;height:64px;margin-bottom:8px;outline:none;border-radius:0;"></textarea>
+      <button class="cta" id="save-btn" onclick="saveCheckin()" disabled>Сохранить чекин</button>
+    </div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="screen hidden" id="screen-result">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-main')">←</button>
+      <div class="topbar-title">РЕЗУЛЬТАТ</div>
+      <div style="width:34px"></div>
+    </div>
+    <div class="scroll" id="res-body"></div>
+    <div class="bottom-bar">
+      <button class="cta" onclick="goBack('screen-main')">На главную</button>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="screen hidden" id="screen-history">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-main')">←</button>
+      <div class="topbar-title">ИСТОРИЯ</div>
+      <button class="icon-btn" onclick="showTrash()" style="font-size:16px;opacity:.5">🗑</button>
+    </div>
+    <div class="scroll" style="padding-top:22px">
+      <div class="sec-head">ВСЕ ЧЕКИНЫ</div>
+      <div id="h-list"></div>
+    </div>
+  </div>
+
+  <!-- TRASH -->
+  <div class="screen hidden" id="screen-trash">
+    <div class="topbar">
+      <button class="icon-btn" onclick="showScreen('screen-history');showHistory()">←</button>
+      <div class="topbar-title">КОРЗИНА</div>
+      <button class="icon-btn" onclick="askClearTrash()" style="font-size:11px;opacity:.4;font-family:'Fira Code',monospace;letter-spacing:-.02em">ВСЁ</button>
+    </div>
+    <div class="scroll" style="padding-top:22px">
+      <div class="sec-head">УДАЛЁННЫЕ ЧЕКИНЫ</div>
+      <div id="trash-list"></div>
+    </div>
+  </div>
+
+  <!-- TRASH DETAIL -->
+  <div class="screen hidden" id="screen-trash-detail">
+    <div class="topbar">
+      <button class="icon-btn" onclick="showTrash()">←</button>
+      <div class="topbar-title">ЧЕКИН</div>
+      <div style="width:30px"></div>
+    </div>
+    <div class="scroll" id="trash-detail-body" style="padding-top:36px;display:flex;flex-direction:column;align-items:center;text-align:center;"></div>
+  </div>
+
+  <!-- CHECKIN DETAIL -->
+  <div class="screen hidden" id="screen-detail">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-history')">←</button>
+      <div class="topbar-title">ЧЕКИН</div>
+      <div style="width:30px"></div>
+    </div>
+    <div class="scroll" id="detail-body" style="padding-top:36px;display:flex;flex-direction:column;align-items:center;text-align:center;"></div>
+    <div class="bottom-bar" id="detail-footer"></div>
+  </div>
+
+  <!-- INSIGHTS -->
+  <div class="screen hidden" id="screen-insights">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-main')">←</button>
+      <div class="topbar-title">ИНСАЙТЫ</div>
+      <div style="width:34px"></div>
+    </div>
+    <div class="scroll" style="padding-top:22px" id="insights-list"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="screen hidden" id="screen-settings">
+    <div class="topbar">
+      <button class="icon-btn" onclick="goBack('screen-main')">←</button>
+      <div class="topbar-title">НАСТРОЙКИ</div>
+      <div style="width:30px"></div>
+    </div>
+    <div class="scroll" style="padding-top:28px">
+
+      <div class="sec-head">ЧЕКИНЫ</div>
+      <div class="settings-group">
+        <div class="settings-row" onclick="setSetting('frequency','daily')">
+          <div class="settings-label">Ежедневно</div>
+          <div class="settings-check" id="freq-daily">✓</div>
+        </div>
+        <div class="settings-row" onclick="setSetting('frequency','weekly')">
+          <div class="settings-label">Еженедельно</div>
+          <div class="settings-check" id="freq-weekly"></div>
+        </div>
+        <div class="settings-row" id="day-row" style="display:none">
+          <div class="settings-label">День недели</div>
+          <div style="display:flex;gap:6px" id="day-btns"></div>
+        </div>
+      </div>
+
+      <div class="sec-head" style="margin-top:24px">УВЕДОМЛЕНИЕ</div>
+      <div class="settings-group">
+        <div class="settings-row" onclick="openTimePicker()">
+          <div class="settings-label">Время напоминания</div>
+          <div id="notif-display" style="font-family:'Fira Code',monospace;font-size:13px;color:rgba(245,243,239,.4)">20:00</div>
+        </div>
+        <div class="settings-row" onclick="applyNotification()" style="justify-content:center">
+          <div class="settings-label" style="color:#e05535;text-align:center" id="notif-apply-lbl">Применить уведомление</div>
+        </div>
+      </div>
+
+      <div class="sec-head" style="margin-top:24px">ДАННЫЕ</div>
+      <div class="settings-group">
+        <div class="settings-row" onclick="resetData()">
+          <div class="settings-label" style="color:#e05535;opacity:.7">Сбросить все данные</div>
+        </div>
+      </div>
+
+      <div class="sec-head" style="margin-top:24px">СИНХРОНИЗАЦИЯ</div>
+      <div class="settings-group" id="account-section"></div>
+
+    </div>
+  </div>
+
+</div>
+<script>
+// ── NOTIFICATIONS ──
+async function initNotifications(){
+  if(!window.Capacitor) return;
+  const { LocalNotifications } = Capacitor.Plugins;
+  if(!LocalNotifications) return;
+  const perm = await LocalNotifications.requestPermissions();
+  if(perm.display === 'granted') scheduleNotification();
 }
 
-// ── Supabase helper ──
-async function sb(path, options = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      ...(options.headers || {}),
-    },
-  });
-  if (options.method === 'POST' && options.prefer === 'minimal') return { ok: res.ok };
-  return res.json();
-}
-
-// ── Проверка подписи Telegram initData ──
-function verifyTelegramData(initData) {
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
-  if (!hash) return null;
-
-  params.delete('hash');
-  const entries = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const dataCheckString = entries.map(([k, v]) => `${k}=${v}`).join('\n');
-
-  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(TOKEN).digest();
-  const expectedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-
-  if (expectedHash !== hash) return null;
-
-  const userParam = params.get('user');
-  if (!userParam) return null;
-
-  try { return JSON.parse(userParam); } catch { return null; }
-}
-
-// ── CORS ──
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'https://byrebiss.github.io');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-
-// ── Авторизация через Telegram ──
-app.post('/auth/telegram', async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: 'No initData' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  // Логируем открытие приложения
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/app_opens`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-        'Prefer': 'return=minimal',
-      },
-      body: JSON.stringify({ tg_id: user.id }),
-    });
-  } catch (e) { console.warn('app_opens log failed:', e); }
-
-  return res.json({
-    ok: true,
-    user: {
-      tg_id: user.id,
-      name: [user.first_name, user.last_name].filter(Boolean).join(' '),
-      username: user.username || null,
-    }
-  });
-});
-
-// ── Сохранение чекина ──
-app.post('/checkin', async (req, res) => {
-  const { initData, checkin } = req.body;
-  if (!initData || !checkin) return res.status(400).json({ error: 'Missing data' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/checkins`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'return=minimal',
-    },
-    body: JSON.stringify({
-      tg_id: user.id,
-      date: checkin.date,
-      answers: checkin.answers,
-      note: checkin.note || null,
-      score: checkin.score || null,
-    }),
-  });
-
-  if (!response.ok) return res.status(500).json({ error: 'DB error' });
-  return res.json({ ok: true });
-});
-
-// ── Получение чекинов ──
-app.post('/checkins/get', async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: 'Missing initData' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  const data = await sb(`checkins?tg_id=eq.${user.id}&order=date.asc`);
-  return res.json({ ok: true, checkins: data });
-});
-
-// ── Сохранение напоминания ──
-app.post('/reminder/set', async (req, res) => {
-  const { initData, hour, minute, enabled } = req.body;
-  if (!initData) return res.status(400).json({ error: 'Missing initData' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  await fetch(`${SUPABASE_URL}/rest/v1/reminders`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'resolution=merge-duplicates,return=minimal',
-    },
-    body: JSON.stringify({
-      tg_id: user.id,
-      hour: hour ?? 20,
-      minute: minute ?? 0,
-      enabled: enabled !== false,
-      updated_at: new Date().toISOString(),
-    }),
-  });
-
-  return res.json({ ok: true });
-});
-
-// ── Отправка напоминаний (вызывается GitHub Actions каждый час) ──
-app.post('/reminders/send', async (req, res) => {
-  // Простая защита — секретный ключ
-  const secret = req.headers['x-cron-secret'];
-  if (secret !== process.env.CRON_SECRET) return res.status(401).json({ error: 'Unauthorized' });
-
+async function scheduleNotification(){
+  if(!window.Capacitor) return;
+  const { LocalNotifications } = Capacitor.Plugins;
+  if(!LocalNotifications) return;
+  const s = loadSettings();
+  const [hh, mm] = (s.notifTime||'20:00').split(':').map(Number);
+  // Cancel existing
+  await LocalNotifications.cancel({ notifications: [{ id: 1 }] }).catch(()=>{});
+  // Schedule repeating daily
   const now = new Date();
-  const currentHour = now.getUTCHours();
-  const currentMinute = now.getUTCMinutes();
-
-  // Берём всех у кого сейчас время напоминания (±5 минут)
-  const reminders = await sb(`reminders?enabled=eq.true&hour=eq.${currentHour}`);
-
-  if (!Array.isArray(reminders) || !reminders.length) {
-    return res.json({ ok: true, sent: 0 });
+  const next = new Date();
+  next.setHours(hh, mm, 0, 0);
+  if(next <= now) next.setDate(next.getDate() + 1);
+  // For weekly, find next occurrence of chosen day
+  if(s.frequency === 'weekly'){
+    const targetDay = (s.notifDay ?? 0 + 1) % 7 || 7; // 1=Mon..7=Sun in JS getDay() 0=Sun
+    const jsDay = [7,1,2,3,4,5,6][s.notifDay ?? 0]; // convert Mon=0 to JS Sun=0 format
+    while(next.getDay() !== jsDay) next.setDate(next.getDate() + 1);
+    if(next <= now) next.setDate(next.getDate() + 7);
   }
-
-  let sent = 0;
-  for (const reminder of reminders) {
-    // Проверяем минуты (±3 минуты — Actions запускается каждые 5 мин)
-    if (Math.abs(reminder.minute - currentMinute) > 3) continue;
-
-    // Получаем последний чекин пользователя
-    const checkins = await sb(`checkins?tg_id=eq.${reminder.tg_id}&order=date.desc&limit=1`);
-    const lastCheckin = Array.isArray(checkins) ? checkins[0] : null;
-
-    let statsText = '';
-    if (lastCheckin) {
-      const daysAgo = Math.floor((Date.now() - new Date(lastCheckin.date)) / 864e5);
-      const score = lastCheckin.score;
-      if (daysAgo === 0) continue; // уже делал чекин сегодня — не беспокоим
-      statsText = daysAgo === 1
-        ? `\n\n📊 Последний чекин: вчера, индекс <b>${score}/10</b>`
-        : `\n\n📊 Последний чекин: ${daysAgo} дн. назад, индекс <b>${score}/10</b>`;
-    }
-
-    await tg('sendMessage', {
-      chat_id: reminder.tg_id,
-      parse_mode: 'HTML',
-      text: `🔥 Время чекина!
-
-Как ты сейчас? Пройди короткий опрос — займёт 2 минуты.${statsText}`,
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ Пройти чекин', web_app: { url: APP_URL } }
-        ]]
-      }
-    });
-    sent++;
-  }
-
-  return res.json({ ok: true, sent });
-});
-
-// ── Статистика для админа ──
-app.get('/admin/stats', async (req, res) => {
-  const secret = req.headers['x-admin-secret'];
-  if (secret !== process.env.CRON_SECRET) return res.status(401).json({ error: 'Unauthorized' });
-
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const weekAgo = new Date(now - 7 * 864e5).toISOString();
-
-  const [allOpens, todayOpens, weekCheckins, allCheckins, reminders] = await Promise.all([
-    sb('app_opens?select=tg_id'),
-    sb(`app_opens?opened_at=gte.${today}&select=tg_id`),
-    sb(`checkins?date=gte.${weekAgo}&select=tg_id`),
-    sb('checkins?select=tg_id'),
-    sb('reminders?enabled=eq.true&select=tg_id'),
-  ]);
-
-  const uniqueUsers = new Set(Array.isArray(allOpens) ? allOpens.map(r => r.tg_id) : []).size;
-  const todayUsers = new Set(Array.isArray(todayOpens) ? todayOpens.map(r => r.tg_id) : []).size;
-  const weekActive = new Set(Array.isArray(weekCheckins) ? weekCheckins.map(r => r.tg_id) : []).size;
-  const totalCheckins = Array.isArray(allCheckins) ? allCheckins.length : 0;
-  const remindersOn = Array.isArray(reminders) ? reminders.length : 0;
-
-  return res.json({ uniqueUsers, todayUsers, weekActive, totalCheckins, remindersOn });
-});
-
-// ── Удаление одного чекина по дате ──
-app.post('/checkin/delete', async (req, res) => {
-  const { initData, date } = req.body;
-  if (!initData || !date) return res.status(400).json({ error: 'Missing data' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  // Удаляем по диапазону: от начала секунды до конца секунды
-  const datePrefix = date.slice(0, 19); // "2024-01-15T10:23:45"
-  const dateFrom = datePrefix + '.000000';
-  const dateTo   = datePrefix + '.999999';
-
-  console.log(`[delete] user=${user.id} date=${datePrefix}`);
-
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}&date=gte.${encodeURIComponent(dateFrom)}&date=lte.${encodeURIComponent(dateTo)}`,
-    {
-      method: 'DELETE',
-      headers: {
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-        'Prefer': 'return=representation',
-      },
-    }
-  );
-
-  const result = await response.json().catch(() => []);
-  console.log(`[delete] result status=${response.status}`, result);
-
-  if (!response.ok) return res.status(500).json({ error: 'DB error', detail: result });
-  return res.json({ ok: true, deleted: Array.isArray(result) ? result.length : 0 });
-});
-
-// ── Удаление всех чекинов пользователя ──
-app.post('/checkins/delete', async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: 'Missing initData' });
-
-  const user = verifyTelegramData(initData);
-  if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/checkins?tg_id=eq.${user.id}`, {
-    method: 'DELETE',
-    headers: {
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'return=minimal',
-    },
+  await LocalNotifications.schedule({
+    notifications: [{
+      id: 1,
+      title: 'Детектор выгорания',
+      body: 'Время пройти чекин — как ты сейчас?',
+      schedule: { at: next, repeats: true, every: s.frequency === 'weekly' ? 'week' : 'day' },
+      sound: null,
+      smallIcon: 'ic_launcher',
+    }]
   });
+}
 
-  if (!response.ok) return res.status(500).json({ error: 'DB error' });
-  return res.json({ ok: true });
+const CATEGORIES = [
+  {
+    id:'energy', name:'ЭНЕРГИЯ',
+    questions:[
+      { sub:'Утренняя энергия',       text:'Сколько сил по утрам?' },
+      { sub:'Энергия в течение дня',  text:'Хватает энергии на весь день?' },
+      { sub:'Бодрость к концу дня', text:'К вечеру ещё есть силы на себя?' },
+    ]
+  },
+  {
+    id:'sleep', name:'СОН',
+    questions:[
+      { sub:'Качество сна',       text:'Сон восстанавливает силы?' },
+      { sub:'Режим сна',          text:'Ложишься и встаёшь в одно время?' },
+      { sub:'Продолжительность',  text:'Хватает часов сна?' },
+    ]
+  },
+  {
+    id:'body', name:'ТЕЛО',
+    questions:[
+      { sub:'Общее самочувствие',     text:'Тело в порядке, нет болей и недомоганий?' },
+      { sub:'Физическая активность',  text:'Хватает движения и физической активности?' },
+      { sub:'Питание',                text:'Питаешься нормально, без пропусков?' },
+    ]
+  },
+  {
+    id:'meaning', name:'СМЫСЛ',
+    questions:[
+      { sub:'Интерес к работе',        text:'Работа вызывает интерес?' },
+      { sub:'Ощущение прогресса',      text:'Чувствуешь что двигаешься вперёд?' },
+      { sub:'Соответствие ценностям',  text:'Делаешь то во что веришь?' },
+    ]
+  },
+  {
+    id:'relations', name:'ОТНОШЕНИЯ',
+    questions:[
+      { sub:'Ощущение поддержки',   text:'Есть на кого опереться?' },
+      { sub:'Стремление к общению', text:'Тянет к людям, не в себя?' },
+      { sub:'Гармония в окружении', text:'Окружение не создаёт напряжение?' },
+    ]
+  },
+  {
+    id:'control', name:'КОНТРОЛЬ',
+    questions:[
+      { sub:'Автономия в решениях', text:'Сам управляешь своим днём и решениями?' },
+      { sub:'Эмоциональный фон',    text:'Внутри спокойно, не на взводе?' },
+      { sub:'Лёгкость нагрузки', text:'Задач не больше чем можешь потянуть?' },
+    ]
+  }
+];
+
+const MSGS = [
+  { max:3,  icon:'🔥', msg:'Серьёзное выгорание',  sub:'Ты на пределе. Тело и голова требуют остановки.' },
+  { max:5,  icon:'⚡', msg:'Тревожная зона',        sub:'Ресурсы на исходе. Снизь нагрузку прямо сейчас.' },
+  { max:7,  icon:'🌤', msg:'Умеренное напряжение',  sub:'В целом держишься, но есть просадки — следи.' },
+  { max:10, icon:'✦',  msg:'Хорошее состояние',     sub:'Ресурс есть. Поддерживай ритм.' }
+];
+
+// flat list of all questions with cat reference
+const QUESTIONS = [];
+CATEGORIES.forEach(cat=>{
+  cat.questions.forEach((q,qi)=>{
+    QUESTIONS.push({...q, cat:cat.id, catName:cat.name, localIdx:qi});
+  });
 });
+const N = QUESTIONS.length; // 18
 
-// ── Webhook Telegram ──
-app.post('/webhook', async (req, res) => {
-  res.sendStatus(200);
+let answers = {}, period = '1М', compareMode = false;
 
-  const { message, callback_query } = req.body;
+const load = () => JSON.parse(localStorage.getItem('bd3')||'[]');
+const save = d => localStorage.setItem('bd3', JSON.stringify(d));
+const calcScore = a => {
+  const v = Object.values(a);
+  return +(v.reduce((s,x)=>s+x,0)/v.length*2).toFixed(1);
+};
+const catScore = (a, catId) => {
+  const idxs = QUESTIONS.map((q,i)=>({...q,i})).filter(q=>q.cat===catId);
+  const v = idxs.map(q=>a[q.i]||1);
+  return +(v.reduce((s,x)=>s+x,0)/v.length*2).toFixed(1);
+};
+const fmt = d => new Date(d).toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 
-  // ── Обработка кнопки "Написать разработчику" ──
-  if (callback_query?.data === 'feedback') {
-    await tg('answerCallbackQuery', { callback_query_id: callback_query.id });
-    await tg('sendMessage', {
-      chat_id: callback_query.from.id,
-      parse_mode: 'HTML',
-      text: `✉️ <b>Обратная связь</b>\n\nНапиши своё мнение, идею или замечание — следующим сообщением.\n\nВсё анонимно: я не вижу кто пишет, только текст 👇`,
-    });
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>{
+    if(s.id===id){ s.classList.remove('hidden','exit'); }
+    else {
+      if(!s.classList.contains('hidden')) s.classList.add('exit');
+      setTimeout(()=>s.classList.add('hidden'),420);
+    }
+  });
+}
+function goBack(to){ showScreen(to); if(to==='screen-main') renderMain(); if(to==='screen-history') showHistory(); }
+function resetData(){
+  showConfirm('Сбросить все данные?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Все чекины будут удалены навсегда</span>', ()=>{
+    localStorage.removeItem('bd3');
+    localStorage.removeItem('bd3-trash');
+    localStorage.removeItem('bd3-inotes');
+    if(window.Telegram?.WebApp?.initData && window._deleteTgCheckins) window._deleteTgCheckins();
+    renderMain();
+    showScreen('screen-main');
+  });
+}
+
+// ── MAIN ──
+function toggleCompare(){ compareMode=!compareMode; renderMain(); }
+
+function renderMain(){
+  const data = load();
+  const lbl  = document.getElementById('last-lbl');
+  const cta  = document.getElementById('main-cta');
+  const body = document.getElementById('main-body');
+
+  if(data.length < 3){
+    const s = loadSettings();
+    const isWeekly = s.frequency === 'weekly';
+    const subtitle = isWeekly
+      ? 'Заполняй чекин каждую неделю —<br>через 3 записи увидишь первые закономерности'
+      : 'Заполняй чекин каждый день —<br>через 3 записи увидишь первые закономерности';
+    const n = data.length;
+    const pct = (n / 3 * 100).toFixed(0);
+    lbl.textContent = n === 0 ? 'нет чекинов' : `последний: ${fmt(data[n-1].date)}`;
+    cta.textContent = n === 0 ? 'Заполнить сейчас' : 'Заполнить ещё';
+    cta.disabled = false;
+
+    let scoreHtml = '';
+    if(n > 0){
+      const sc = calcScore(data[n-1].answers);
+      scoreHtml = `
+        <div class="score-card u d2" style="margin-bottom:14px">
+          <div class="score-top">
+            <div style="display:flex;align-items:flex-end;gap:3px">
+              <div class="score-big">${sc}</div>
+              <div class="score-denom">/10</div>
+            </div>
+            <div style="text-align:right">
+              <div class="score-sub">${n === 1 ? 'первый чекин' : n + ' чекина'}</div>
+            </div>
+          </div>
+          <div class="score-bar"><div class="score-bar-fill" style="width:${(sc/10*100).toFixed(0)}%"></div></div>
+        </div>`;
+    }
+
+    body.innerHTML = scoreHtml + `
+      <div class="u d${n > 0 ? 3 : 2}" style="background:#161210;border:1px solid rgba(245,243,239,.06);padding:28px 20px;text-align:center">
+        <div style="font-size:60px;margin-bottom:16px;line-height:1">🌱</div>
+        <div style="font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px;color:#f5f3ef">Начни отслеживать<br>своё состояние</div>
+        <div style="font-size:12px;color:rgba(245,243,239,.35);font-weight:300;line-height:1.75;margin-bottom:24px">${subtitle}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+          <div style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.12em;color:rgba(245,243,239,.22)">ПРОГРЕСС</div>
+          <div style="font-family:'Fira Code',monospace;font-size:9px;color:#e05535">Запись ${n + 1} из 3</div>
+        </div>
+        <div style="height:2px;background:rgba(245,243,239,.06);border-radius:1px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#e05535,#ff8a65);border-radius:1px;transition:width .9s cubic-bezier(.77,0,.175,1)"></div>
+        </div>
+      </div>`;
     return;
   }
 
-  if (!message) return;
+  const last  = data[data.length-1];
+  const sc    = calcScore(last.answers);
+  const days  = Math.floor((Date.now()-new Date(last.date))/864e5);
+  lbl.textContent = days===0?'чекин сегодня':`последний: ${days} дн. назад`;
+  cta.textContent='Пройти чекин'; cta.disabled=false;
 
-  const chatId = message.chat.id;
-  const text = message.text || '';
-  const firstName = message.from?.first_name || 'друг';
-  const userId = message.from?.id;
+  const d0    = calcScore(data[0].answers);
+  const delta = (sc-d0).toFixed(1);
 
-  if (text === '/start') {
-    await tg('sendMessage', {
-      chat_id: chatId,
-      parse_mode: 'HTML',
-      text:
-`🔥 <b>Детектор выгорания</b>
+  body.innerHTML=`
+    <div class="score-card u d2">
+      <div class="score-top">
+        <div style="display:flex;align-items:flex-end;gap:3px">
+          <div class="score-big">${sc}</div>
+          <div class="score-denom">/10</div>
+        </div>
+        <div style="text-align:right">
+          <div class="score-delta">${delta>0?'+':''}${delta} от старта</div>
+          <div class="score-sub">первый: ${d0}/10</div>
+        </div>
+      </div>
+      <div class="score-bar"><div class="score-bar-fill" style="width:${(sc/10*100).toFixed(0)}%"></div></div>
+    </div>
 
-Привет, ${firstName}!
+    <div class="chart-card u d3">
+      <div class="chart-head">
+        <div class="chart-lbl">ДИНАМИКА</div>
+        <div class="pills">
+          ${['1М','3М','ВСЁ'].map(p=>`<div class="pill ${period===p?'on':''}" onclick="setPeriod('${p}')">${p}</div>`).join('')}
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <div class="chart-foot" id="chart-foot" style="display:flex;gap:16px"></div>
+        <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="toggleCompare()">
+          <div style="width:20px;height:2px;background:#5c8c6e;border-radius:1px"></div>
+          <span id="compare-lbl" style="font-family:'Fira Code',monospace;font-size:8px;color:rgba(245,243,239,.28)">${compareMode?'скрыть сравнение':'месяц назад'}</span>
+        </div>
+      </div>
+    </div>
 
-Отслеживай своё состояние раз в день или раз в неделю — и увидишь когда начинается выгорание.
+    <div class="axes-card u d4">
+      <div class="sec-head">ДЕТАЛИ ПОСЛЕДНЕГО</div>
+      ${CATEGORIES.map(cat=>{
+        const s = catScore(last.answers, cat.id);
+        return `<div class="axis-row">
+          <div class="axis-cat">${cat.name}</div>
+          <div class="axis-track"><div class="axis-fill" style="width:${(s/10*100).toFixed(0)}%"></div></div>
+          <div class="axis-val">${s}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
 
-<b>Что внутри:</b>
-• 18 вопросов: энергия, сон, тело, эмоции, работа, смысл
-• График динамики и инсайты
-• Данные привязаны к твоему Telegram — доступны с любого устройства
+  setTimeout(()=>{
+    let compareData=null;
+    if(compareMode&&data.length>=4){
+      // 1 checkin = 1 week, compare last half vs previous half
+      const half=Math.floor(data.length/2);
+      compareData=data.slice(0, half);
+      if(compareData.length<2) compareData=null;
+    }
+    drawChart(data, compareData);
 
-После 3 чекинов появятся первые закономерности 📊
+  }, 60);
+}
 
-——
-<i>⚗️ Это тестовая версия. Все данные анонимны. Если есть идеи или замечания — жми кнопку ниже 🙏</i>`,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🚀 Открыть детектор', web_app: { url: APP_URL } }],
-          [{ text: '✉️ Написать разработчику', callback_data: 'feedback' }],
-        ]
-      }
-    });
+function setPeriod(p){ period=p; renderMain(); }
+
+function drawChart(data, compare){
+  const c=document.getElementById('chart');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const r=c.parentElement.getBoundingClientRect();
+  c.width=r.width*dpr; c.height=r.height*dpr;
+  c.style.width=r.width+'px'; c.style.height=r.height+'px';
+  ctx.scale(dpr,dpr);
+  const W=r.width, H=r.height;
+
+  let f=[...data];
+  const now=Date.now();
+  if(period==='1М') f=data.filter(d=>now-new Date(d.date)<30*864e5);
+  if(period==='3М') f=data.filter(d=>now-new Date(d.date)<90*864e5);
+  if(f.length<2) f=data.slice(-Math.max(2,data.length));
+  if(!f.length) return;
+
+  const sc=f.map(d=>calcScore(d.answers));
+  const p={l:10,r:10,t:12,b:6};
+  const ww=W-p.l-p.r, hh=H-p.t-p.b;
+
+  ctx.strokeStyle='rgba(245,243,239,.04)'; ctx.lineWidth=1;
+  [2,4,6,8,10].forEach(v=>{
+    const y=p.t+hh-(v/10)*hh;
+    ctx.beginPath(); ctx.moveTo(p.l,y); ctx.lineTo(W-p.r,y); ctx.stroke();
+  });
+
+  const pts=sc.map((s,i)=>({
+    x:p.l+(f.length===1?ww/2:i/(f.length-1)*ww),
+    y:p.t+hh-(s/10)*hh
+  }));
+
+  const g=ctx.createLinearGradient(0,p.t,0,H);
+  g.addColorStop(0,'rgba(224,85,53,.2)');
+  g.addColorStop(1,'rgba(224,85,53,0)');
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,p.t+hh);
+  pts.forEach(pt=>ctx.lineTo(pt.x,pt.y));
+  ctx.lineTo(pts[pts.length-1].x,p.t+hh);
+  ctx.closePath(); ctx.fillStyle=g; ctx.fill();
+
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const mx=(pts[i-1].x+pts[i].x)/2;
+    ctx.bezierCurveTo(mx,pts[i-1].y,mx,pts[i].y,pts[i].x,pts[i].y);
+  }
+  ctx.strokeStyle='#e05535'; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.stroke();
+
+  pts.forEach((pt,i)=>{
+    const isLast=i===pts.length-1;
+    if(isLast){ ctx.beginPath(); ctx.arc(pt.x,pt.y,8,0,Math.PI*2); ctx.strokeStyle='rgba(224,85,53,.22)'; ctx.lineWidth=1.5; ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(pt.x,pt.y,isLast?4.5:2.5,0,Math.PI*2);
+    ctx.fillStyle=isLast?'#e05535':'rgba(224,85,53,.5)'; ctx.fill();
+  });
+
+  // compare line
+  if(compare&&compare.length>=2){
+    const sc2=compare.map(d=>calcScore(d.answers));
+    const pts2=sc2.map((s,i)=>({
+      x:p.l+(compare.length===1?ww/2:i/(compare.length-1)*ww),
+      y:p.t+hh-(s/10)*hh
+    }));
+    ctx.beginPath(); ctx.moveTo(pts2[0].x,pts2[0].y);
+    for(let i=1;i<pts2.length;i++){
+      const mx=(pts2[i-1].x+pts2[i].x)/2;
+      ctx.bezierCurveTo(mx,pts2[i-1].y,mx,pts2[i].y,pts2[i].x,pts2[i].y);
+    }
+    ctx.strokeStyle='#5c8c6e'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+    pts2.forEach(pt=>{ ctx.beginPath(); ctx.arc(pt.x,pt.y,2.5,0,Math.PI*2); ctx.fillStyle='#5c8c6e'; ctx.fill(); });
   }
 
-  // ── Анонимный фидбек — пересылаем разработчику ──
-  if (!text.startsWith('/') && String(userId) !== String(ADMIN_TG_ID) && ADMIN_TG_ID) {
-    await tg('sendMessage', {
-      chat_id: ADMIN_TG_ID,
-      parse_mode: 'HTML',
-      text: `💬 <b>Анонимный фидбек:</b>\n\n${text}`,
+  const foot=document.getElementById('chart-foot');
+  if(foot&&f.length>=2)
+    foot.innerHTML=`<span class="chart-ft">${fmt(f[0].date)}</span><span class="chart-ft">${fmt(f[f.length-1].date)}</span>`;
+}
+
+// ── CHECKIN ──
+function startCheckin(){
+  answers={};
+  showScreen('screen-checkin');
+  document.getElementById('ck-week').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'});
+  renderQuestions();
+}
+
+function renderQuestions(){
+  const wrap=document.getElementById('q-wrap');
+  let html='';
+  let globalIdx=0;
+  CATEGORIES.forEach(cat=>{
+    html+=`<div class="cat-group">
+      <div class="cat-header">
+        <div class="cat-name">${cat.name}</div>
+        <div class="cat-count">${cat.questions.length} вопроса</div>
+      </div>`;
+    cat.questions.forEach((q,qi)=>{
+      const gi=globalIdx;
+      html+=`<div class="q-block" id="qb${gi}">
+        <div class="q-subcat">${q.sub}</div>
+        <div class="q-row">
+          ${[1,2,3,4,5].map(v=>`<button class="q-btn" id="o${gi}${v}" onclick="pick(${gi},${v})">${v}</button>`).join('')}
+        </div>
+        <div class="q-hint"><span>плохо</span><span>отлично</span></div>
+      </div>`;
+      globalIdx++;
     });
-    await tg('sendMessage', {
-      chat_id: chatId,
-      text: '✅ Спасибо! Сообщение отправлено анонимно 🙏',
-    });
-    return;
-  }
+    html+=`</div>`;
+  });
+  wrap.innerHTML=html;
+  updProg();
+}
 
-  // Статистика только для тебя
-  if (text === '/stats' && String(userId) === String(ADMIN_TG_ID)) {
-    try {
-      const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      const weekAgo = new Date(now - 7 * 864e5).toISOString();
+function pick(qi,val){
+  answers[qi]=val;
+  for(let v=1;v<=5;v++) document.getElementById(`o${qi}${v}`).classList.toggle('sel',v<=val);
+  document.getElementById(`qb${qi}`).classList.add('done');
+  updProg();
+  const next=document.getElementById(`qb${qi+1}`);
+  if(next) setTimeout(()=>next.scrollIntoView({behavior:'smooth',block:'nearest'}),150);
+}
 
-      const [allOpens, todayOpens, weekCheckins, allCheckins, reminders] = await Promise.all([
-        sb('app_opens?select=tg_id'),
-        sb(`app_opens?opened_at=gte.${today}&select=tg_id`),
-        sb(`checkins?date=gte.${weekAgo}&select=tg_id`),
-        sb('checkins?select=tg_id'),
-        sb('reminders?enabled=eq.true&select=tg_id'),
-      ]);
+function updProg(){
+  const n=Object.keys(answers).length;
+  document.getElementById('prog').style.width=(n/N*100)+'%';
+  document.getElementById('prog-txt').textContent=`ОТВЕЧЕНО ${n} / ${N}`;
+  document.getElementById('save-btn').disabled=n<N;
+}
 
-      const uniqueUsers = new Set(Array.isArray(allOpens) ? allOpens.map(r => r.tg_id) : []).size;
-      const todayUsers = new Set(Array.isArray(todayOpens) ? todayOpens.map(r => r.tg_id) : []).size;
-      const weekActive = new Set(Array.isArray(weekCheckins) ? weekCheckins.map(r => r.tg_id) : []).size;
-      const totalCheckins = Array.isArray(allCheckins) ? allCheckins.length : 0;
-      const remindersOn = Array.isArray(reminders) ? reminders.length : 0;
-
-      await tg('sendMessage', {
-        chat_id: chatId,
-        parse_mode: 'HTML',
-        text:
-`📊 <b>Статистика Детектора выгорания</b>
-
-👥 Всего уникальных пользователей: <b>${uniqueUsers}</b>
-📅 Открыли сегодня: <b>${todayUsers}</b>
-🔥 Активных за неделю: <b>${weekActive}</b>
-✅ Всего чекинов: <b>${totalCheckins}</b>
-🔔 Включили напоминания: <b>${remindersOn}</b>`
+async function saveCheckin(){
+  const data=load();
+  const note=document.getElementById('note-field').value.trim();
+  const entry={date:new Date().toISOString(), answers:{...answers}, note:note||null};
+  data.push(entry);
+  save(data);
+  if(currentUser){
+    try{
+      await sb.from('checkins').insert({
+        user_id: currentUser.id,
+        date: entry.date,
+        answers: entry.answers,
+        note: entry.note,
+        score: calcScore(entry.answers)
       });
-    } catch (e) {
-      await tg('sendMessage', { chat_id: chatId, text: 'Ошибка получения статистики' });
-    }
+    }catch(e){ console.warn('Supabase save failed:', e); }
   }
-});
+  if(window._saveTgCheckin) window._saveTgCheckin(entry);
+  showResult();
+}
 
-// ── Health check ──
-app.get('/', (req, res) => res.send('Burnout Detector Bot is running ✓'));
+// ── RESULT ──
+function showResult(){
+  showScreen('screen-result');
+  const sc=calcScore(answers);
+  const msg=MSGS.find(m=>sc<=m.max)||MSGS[MSGS.length-1];
+  const data=load();
+  const prev=data.length>=2?calcScore(data[data.length-2].answers):null;
+  const delta=prev!==null?(sc-prev).toFixed(1):null;
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Bot server running on port ${PORT}`));
+  document.getElementById('res-body').innerHTML=`
+    <div class="res-icon">${msg.icon}</div>
+    <div class="res-score">${sc}</div>
+    <div class="res-meta">из 10 · ${delta!==null?`${delta>0?'+':''}${delta} от прошлого`:'первый чекин'}</div>
+    <div class="res-msg">${msg.msg}</div>
+    <div class="res-sub">${msg.sub}</div>
+    <div class="res-axes">
+      ${CATEGORIES.map(cat=>{
+        const s=catScore(answers,cat.id);
+        const dots=Math.round(s/2);
+        return `<div class="ra-row">
+          <div class="ra-name">${cat.name}</div>
+          <div class="ra-dots">${[1,2,3,4,5].map(d=>`<div class="ra-dot ${d<=dots?'on':''}"></div>`).join('')}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// ── HISTORY ──
+function showHistory(){
+  showScreen('screen-history');
+  const data=load();
+  const list=document.getElementById('h-list');
+  if(!data.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">◎</div>Пока нет чекинов</div>';
+    return;
+  }
+  list.innerHTML=`<div class="h-list">`+
+    [...data].reverse().map((d,ri)=>{
+      const sc=calcScore(d.answers);
+      const realIdx=data.length-1-ri;
+      return `<div class="h-item" style="cursor:pointer" onclick="showCheckinDetail(${realIdx})">
+        <div>
+          <div class="h-date">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
+          ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.4);margin-top:6px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px'>${d.note}</div>`:''}
+          <div class="h-cats">
+            ${CATEGORIES.map(cat=>`<div class="h-cat">${cat.name.slice(0,3)}:<b>${catScore(d.answers,cat.id)}</b></div>`).join('')}
+          </div>
+        </div>
+        <div class="h-score">${sc}<span>/10</span></div>
+      </div>`;
+    }).join('')+`</div>`;
+}
+
+function showCheckinDetail(idx){
+  const data = load();
+  const d = data[idx];
+  if(!d) return;
+  const sc = calcScore(d.answers);
+  const msg = MSGS.find(m=>sc<=m.max)||MSGS[MSGS.length-1];
+  const prev = idx>0 ? calcScore(data[idx-1].answers) : null;
+  const delta = prev!==null ? (sc-prev).toFixed(1) : null;
+  showScreen('screen-detail');
+  document.getElementById('detail-footer').innerHTML = '';
+  document.getElementById('detail-body').innerHTML = `
+    <div class="res-icon">${msg.icon}</div>
+    <div class="res-score">${sc}</div>
+    <div class="res-meta">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})} · ${delta!==null?`${delta>0?'+':''}${delta} от предыдущего`:'первый чекин'}</div>
+    <div class="res-msg">${msg.msg}</div>
+    <div class="res-sub">${msg.sub}</div>
+    <div class="res-axes">
+      ${CATEGORIES.map(cat=>{
+        const s=catScore(d.answers,cat.id);
+        const dots=Math.round(s/2);
+        return `<div class="ra-row">
+          <div class="ra-name">${cat.name}</div>
+          <div class="ra-dots">${[1,2,3,4,5].map(dd=>`<div class="ra-dot ${dd<=dots?'on':''}"></div>`).join('')}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="width:260px;margin-top:24px;margin-bottom:24px;text-align:left">
+      <div id="detail-note-view" onclick="startEditNote(${idx})" style="border-left:2px solid #e05535;padding:10px 12px;background:#161210;cursor:text;min-height:36px">
+        <div id="detail-note-text" style="font-size:12px;color:${d.note?'rgba(245,243,239,.55)':'rgba(245,243,239,.2)'};font-style:italic;line-height:1.7;white-space:pre-wrap">${d.note||'Нажми чтобы добавить заметку...'}</div>
+      </div>
+      <div id="detail-note-edit" style="display:none;text-align:left">
+        <textarea id="detail-note-input" style="width:100%;background:#161210;border:none;border-left:2px solid #e05535;color:#f5f3ef;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:300;padding:10px 12px;resize:none;outline:none;box-sizing:border-box;line-height:1.7;overflow:hidden" rows="1" placeholder="Что происходит на этой неделе?">${d.note||''}</textarea>
+        <button onclick="saveDetailNote(${idx})" style="margin-top:4px;padding:8px 16px;background:transparent;border:1px solid rgba(245,243,239,.12);color:rgba(245,243,239,.4);font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.12em;cursor:pointer" id="detail-save-btn">СОХРАНИТЬ</button>
+      </div>
+    </div>
+    <div style="width:260px;text-align:center;margin-top:12px;margin-bottom:24px">
+      <span id="del-btn-${idx}" onclick="confirmDelete(${idx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;opacity:.6">Удалить чекин</span>
+      <span id="del-confirm-${idx}" style="display:none">
+        <span style="color:rgba(245,243,239,.35);font-size:13px;margin-right:12px">Точно?</span>
+        <span onclick="doDeleteCheckin(${idx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer">Да</span>
+        <span style="color:rgba(245,243,239,.2);margin:0 8px">·</span>
+        <span onclick="cancelDelete(${idx})" style="color:rgba(245,243,239,.35);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer">Нет</span>
+      </span>
+    </div>`;
+  // auto-resize textarea on input
+  setTimeout(()=>{
+    const ta = document.getElementById('detail-note-input');
+    if(ta){
+      const resize = ()=>{ ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; };
+      ta.addEventListener('input', resize);
+    }
+  }, 50);
+}
+
+function startEditNote(idx){
+  const view = document.getElementById('detail-note-view');
+  const edit = document.getElementById('detail-note-edit');
+  const ta = document.getElementById('detail-note-input');
+  view.style.display = 'none';
+  edit.style.display = 'block';
+  ta.focus();
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+}
+
+function saveDetailNote(idx){
+  const data = load();
+  const note = document.getElementById('detail-note-input').value.trim();
+  data[idx].note = note || null;
+  save(data);
+  // update view
+  const textEl = document.getElementById('detail-note-text');
+  textEl.textContent = note || 'Нажми чтобы добавить заметку...';
+  textEl.style.color = note ? 'rgba(245,243,239,.55)' : 'rgba(245,243,239,.2)';
+  document.getElementById('detail-note-view').style.display = 'block';
+  document.getElementById('detail-note-edit').style.display = 'none';
+  const btn = document.getElementById('detail-save-btn');
+  btn.textContent = '✓ СОХРАНЕНО';
+  setTimeout(()=>{ btn.textContent='СОХРАНИТЬ'; }, 1200);
+}
+
+function confirmDelete(idx){
+  document.getElementById('del-btn-'+idx).style.display='none';
+  document.getElementById('del-confirm-'+idx).style.display='inline';
+  setTimeout(()=>cancelDelete(idx), 3000);
+}
+function cancelDelete(idx){
+  const btn = document.getElementById('del-btn-'+idx);
+  const confirm = document.getElementById('del-confirm-'+idx);
+  if(btn) btn.style.display='inline';
+  if(confirm) confirm.style.display='none';
+}
+async function doDeleteCheckin(idx){
+  const data = load();
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const item = data.splice(idx, 1)[0];
+  item._deletedAt = new Date().toISOString();
+  const alreadyInTrash = trash.some(t => t.date.slice(0,19) === item.date.slice(0,19));
+  if (!alreadyInTrash) trash.unshift(item);
+  save(data);
+  localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  // Удаляем с сервера — ждём чтобы при следующем sync не вернулось
+  if (window.Telegram?.WebApp?.initData) {
+    try {
+      const r = await fetch(`${RAILWAY_URL}/checkin/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: window.Telegram.WebApp.initData, date: item.date }),
+      });
+      const result = await r.json();
+      console.log('[delete]', result);
+    } catch(e) { console.warn('Server delete failed:', e); }
+  }
+  showScreen('screen-history');
+  showHistory();
+}
+function deleteCheckin(idx){ confirmDelete(idx); }
+
+function purgeOldTrash(){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const cutoff = Date.now() - 10 * 864e5;
+  const fresh = trash.filter(d => !d._deletedAt || new Date(d._deletedAt) > cutoff);
+  if(fresh.length !== trash.length) localStorage.setItem('bd3-trash', JSON.stringify(fresh));
+  return fresh;
+}
+
+function showTrash(){
+  showScreen('screen-trash');
+  const trash = purgeOldTrash();
+  const list = document.getElementById('trash-list');
+  if(!trash.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">◎</div>Корзина пуста</div>';
+    return;
+  }
+  list.innerHTML = '<div class="h-list">' + trash.map((d,i)=>{
+    const sc = calcScore(d.answers);
+    const daysLeft = d._deletedAt
+      ? Math.max(1, Math.ceil((new Date(d._deletedAt).getTime() + 10*864e5 - Date.now()) / 864e5))
+      : 10;
+    return `<div class="h-item" style="align-items:flex-start">
+      <div style="flex:1;cursor:pointer" onclick="showTrashDetail(${i})">
+        <div class="h-date">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
+        ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.3);margin-top:4px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px'>${d.note}</div>`:''}
+        <div class="h-cats" style="margin-top:5px">
+          ${CATEGORIES.map(cat=>`<div class="h-cat">${cat.name.slice(0,3)}:<b>${catScore(d.answers,cat.id)}</b></div>`).join('')}
+        </div>
+        <div style="font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.18);margin-top:4px">удалится через ${daysLeft} дн.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;margin-left:8px">
+        <div class="h-score" style="cursor:pointer" onclick="showTrashDetail(${i})">${sc}<span>/10</span></div>
+        <button onclick="restoreCheckin(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(245,243,239,.15);color:rgba(245,243,239,.4);padding:4px 10px;cursor:pointer;white-space:nowrap">ВЕРНУТЬ</button>
+        <button onclick="askPermDelete(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(224,85,53,.25);color:rgba(224,85,53,.55);padding:4px 10px;cursor:pointer;white-space:nowrap">× УДАЛИТЬ</button>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function showConfirm(text, onConfirm){
+  const existing = document.getElementById('confirm-overlay');
+  if(existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'confirm-overlay';
+  el.id = 'confirm-overlay';
+  el.innerHTML = `
+    <div class="confirm-box">
+      <div class="confirm-title">ПОДТВЕРЖДЕНИЕ</div>
+      <div class="confirm-text">${text}</div>
+      <div class="confirm-btns">
+        <button class="confirm-btn-cancel" onclick="document.getElementById('confirm-overlay').remove()">Отмена</button>
+        <button class="confirm-btn-danger" id="confirm-ok">Удалить</button>
+      </div>
+    </div>`;
+  document.querySelector('.phone').appendChild(el);
+  document.getElementById('confirm-ok').onclick = () => { el.remove(); onConfirm(); };
+}
+
+function askPermDelete(i){
+  showConfirm('Удалить навсегда?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Это действие нельзя отменить</span>', ()=>{
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    trash.splice(i, 1);
+    localStorage.setItem('bd3-trash', JSON.stringify(trash));
+    showTrash();
+  });
+}
+
+function askPermDeleteFromDetail(trashIdx){
+  showConfirm('Удалить навсегда?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">Это действие нельзя отменить</span>', ()=>{
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    trash.splice(trashIdx, 1);
+    localStorage.setItem('bd3-trash', JSON.stringify(trash));
+    showTrash();
+  });
+}
+
+function askClearTrash(){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  if(!trash.length) return;
+  const n = trash.length;
+  const word = n===1?'чекин':n<5?'чекина':'чекинов';
+  showConfirm(`Очистить корзину?<br><span style="font-size:12px;font-weight:300;color:rgba(245,243,239,.4)">${n} ${word} будет удалено навсегда</span>`, ()=>{
+    localStorage.removeItem('bd3-trash');
+    showTrash();
+  });
+}
+
+function showTrashDetail(trashIdx){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const d = trash[trashIdx];
+  if(!d) return;
+  const sc = calcScore(d.answers);
+  const msg = MSGS.find(m=>sc<=m.max)||MSGS[MSGS.length-1];
+  showScreen('screen-trash-detail');
+  document.getElementById('trash-detail-body').innerHTML = `
+    <div class="res-icon">${msg.icon}</div>
+    <div class="res-score">${sc}</div>
+    <div class="res-meta">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</div>
+    <div class="res-msg">${msg.msg}</div>
+    <div class="res-sub">${msg.sub}</div>
+    <div class="res-axes">
+      ${CATEGORIES.map(cat=>{
+        const s=catScore(d.answers,cat.id);
+        const dots=Math.round(s/2);
+        return `<div class="ra-row">
+          <div class="ra-name">${cat.name}</div>
+          <div class="ra-dots">${[1,2,3,4,5].map(dd=>`<div class="ra-dot ${dd<=dots?'on':''}"></div>`).join('')}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${d.note?`<div style="width:260px;margin-top:24px;text-align:left;border-left:2px solid #e05535;padding:10px 12px;background:#161210;font-size:12px;color:rgba(245,243,239,.55);font-style:italic;line-height:1.7">${d.note}</div>`:''}
+    <div style="width:260px;display:flex;flex-direction:column;gap:12px;margin-top:24px;margin-bottom:24px;text-align:center">
+      <button onclick="restoreCheckin(${trashIdx})" style="background:transparent;border:none;color:rgba(245,243,239,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">Восстановить чекин</button>
+      <button onclick="askPermDeleteFromDetail(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
+    </div>`;
+}
+
+function restoreCheckin(trashIdx){
+  const data = load();
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const item = trash.splice(trashIdx, 1)[0];
+  delete item._deletedAt;
+  data.push(item);
+  data.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  save(data);
+  localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  showTrash();
+}
+
+
+function showSettings(){
+  showScreen('screen-settings');
+  const s = loadSettings();
+  document.getElementById('freq-daily').textContent   = s.frequency==='daily'  ? '✓' : '';
+  document.getElementById('freq-weekly').textContent  = s.frequency==='weekly' ? '✓' : '';
+  const t = s.notifTime || '20:00';
+  const el = document.getElementById('notif-display');
+  if(el) el.textContent = t;
+  const dayRow = document.getElementById('day-row');
+  if(dayRow){
+    dayRow.style.display = s.frequency==='weekly' ? 'flex' : 'none';
+    const days = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+    const curDay = s.notifDay ?? 0;
+    document.getElementById('day-btns').innerHTML = days.map((d,i)=>
+      `<span onclick="setSetting('notifDay',${i})" style="font-family:'Fira Code',monospace;font-size:9px;padding:4px 7px;cursor:pointer;border:1px solid ${i===curDay?'#e05535':'rgba(245,243,239,.15)'};color:${i===curDay?'#e05535':'rgba(245,243,239,.4)'}">${d}</span>`
+    ).join('');
+  }
+}
+
+function loadSettings(){
+  return JSON.parse(localStorage.getItem('bd3-settings')||'{"frequency":"daily","notifTime":"20:00"}');
+}
+
+function openTimePicker(){
+  const s = loadSettings();
+  const [curHH, curMM] = (s.notifTime||'20:00').split(':').map(Number);
+
+  // calculate position BEFORE creating modal
+  const row = document.querySelector('#screen-settings .settings-row[onclick="openTimePicker()"]');
+  const rect = row ? row.getBoundingClientRect() : {top:200,left:0,width:390,height:48};
+  const MODAL_H = 268; // header(48) + body(220)
+  const top = Math.max(8, Math.min(rect.top + rect.height/2 - MODAL_H/2, window.innerHeight - MODAL_H - 8));
+
+  const overlay = document.createElement('div');
+  overlay.className = 'time-picker-overlay';
+  overlay.id = 'time-picker-overlay';
+
+  const hours   = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
+  const minutes = Array.from({length:12},(_,i)=>String(i*5).padStart(2,'0'));
+
+  overlay.innerHTML = `
+    <div class="time-picker-modal" style="top:${top}px;left:${rect.left}px;width:${rect.width}px">
+      <div class="time-picker-header">
+        <span onclick="closeTimePicker()" style="font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.35);cursor:pointer;letter-spacing:.1em">ОТМЕНА</span>
+        <span style="font-family:'Fira Code',monospace;font-size:9px;color:rgba(245,243,239,.28);letter-spacing:.15em">ВРЕМЯ</span>
+        <span onclick="applyTimePicker()" style="font-family:'Fira Code',monospace;font-size:9px;color:#e05535;cursor:pointer;letter-spacing:.1em">ГОТОВО</span>
+      </div>
+      <div class="time-picker-body">
+        <div class="time-picker-sel"></div>
+        <div class="time-picker-col" id="tp-hh">
+          <div style="height:88px"></div>
+          ${hours.map((h,i)=>`<div class="time-picker-item" data-val="${h}" onclick="scrollToItem('tp-hh',${i})">${h}</div>`).join('')}
+          <div style="height:88px"></div>
+        </div>
+        <div class="time-picker-sep">:</div>
+        <div class="time-picker-col" id="tp-mm">
+          <div style="height:88px"></div>
+          ${minutes.map((m,i)=>`<div class="time-picker-item" data-val="${m}" onclick="scrollToItem('tp-mm',${i})">${m}</div>`).join('')}
+          <div style="height:88px"></div>
+        </div>
+      </div>
+    </div>`;
+
+  overlay.onclick = e => { if(e.target===overlay) closeTimePicker(); };
+  document.body.appendChild(overlay);
+
+  setTimeout(()=>{
+    const hhCol = document.getElementById('tp-hh');
+    const mmCol = document.getElementById('tp-mm');
+    hhCol.scrollTop = curHH * 44;
+    mmCol.scrollTop = curMM * 44;
+    updateActiveItems();
+    hhCol.addEventListener('scroll', updateActiveItems);
+    mmCol.addEventListener('scroll', updateActiveItems);
+  }, 20);
+}
+
+function scrollToItem(colId, idx){
+  const col = document.getElementById(colId);
+  if(!col) return;
+  col.scrollTo({ top: idx * 44, behavior: 'smooth' });
+}
+
+function updateActiveItems(){
+  ['tp-hh','tp-mm'].forEach(id=>{
+    const col = document.getElementById(id);
+    if(!col) return;
+    const idx = Math.round(col.scrollTop / 44);
+    col.querySelectorAll('.time-picker-item').forEach((el,i)=>{
+      el.classList.toggle('active', i===idx);
+    });
+  });
+}
+
+function applyTimePicker(){
+  const hhCol = document.getElementById('tp-hh');
+  const mmCol = document.getElementById('tp-mm');
+  const hh = String(Math.round(hhCol.scrollTop/44)).padStart(2,'0');
+  const mm = String(Math.round(mmCol.scrollTop/44)).padStart(2,'0');
+  const time = hh+':'+mm;
+  setSetting('notifTime', time);
+  const el = document.getElementById('notif-display');
+  if(el) el.textContent = time;
+  closeTimePicker();
+}
+
+function closeTimePicker(){
+  const o = document.getElementById('time-picker-overlay');
+  if(o) o.remove();
+}
+
+async function applyNotification(){
+  const lbl = document.getElementById('notif-apply-lbl');
+  try {
+    await scheduleNotification();
+    // Синхронизируем время напоминания на сервер для Telegram уведомлений
+    const s = loadSettings();
+    const [hh, mm] = (s.notifTime||'20:00').split(':').map(Number);
+    if(window._syncReminderToServer) window._syncReminderToServer(hh, mm, true);
+    if(lbl){ lbl.textContent='✓ Уведомление установлено'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2000); }
+  } catch(e) {
+    if(lbl){ lbl.textContent='Ошибка — разреши уведомления'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2500); }
+  }
+}
+
+function setSetting(key, val){
+  const s = loadSettings();
+  s[key] = val;
+  localStorage.setItem('bd3-settings', JSON.stringify(s));
+  showSettings();
+}
+
+// ── INSIGHTS ──
+const INSIGHTS = [
+  // ── УРОВЕНЬ 1: одиночные ──
+  { id:'energy_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['energy'], badgeClass:'badge-orange',
+    check: data => avg3(data,'energy') <= 5,
+    text: 'Энергия стабильно низкая уже несколько недель. Это не случайная усталость — тело сигнализирует о накопленном дефиците.',
+    action: 'Начни с одного: сон, движение или паузы в течение дня. Энергия восстанавливается за 2–3 недели если убрать главную утечку.' },
+  { id:'sleep_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['sleep'], badgeClass:'badge-orange',
+    check: data => avg3(data,'sleep') <= 5,
+    text: 'Сон нарушен уже несколько недель. Плохой сон — один из первых и самых надёжных сигналов выгорания. Без него всё остальное восстанавливается медленнее.',
+    action: 'Сон — точка входа. Пока он не нормализуется, энергия и настроение будут нестабильны.' },
+  { id:'body_low', level:'🟡', badge:'ОБРАТИ ВНИМАНИЕ',
+    cats:['body'], badgeClass:'badge-yellow',
+    check: data => avg3(data,'body') <= 5,
+    text: 'Физическое состояние снижено несколько недель подряд. Тело — база на которой держится всё остальное.',
+    action: 'Движение и питание восстанавливаются быстро — иногда хватает одной недели чтобы почувствовать разницу.' },
+  { id:'meaning_low', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['meaning'], badgeClass:'badge-red',
+    check: data => avg3(data,'meaning') <= 5,
+    text: 'Смысл в работе устойчиво снижен. Исследования показывают: именно это — первый сигнал выгорания, ещё до усталости. Усталость приходит потом.',
+    action: 'Стоит понять что именно перестало откликаться — интерес, прогресс или соответствие тому во что веришь.' },
+  { id:'relations_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['relations'], badgeClass:'badge-orange',
+    check: data => avg3(data,'relations') <= 5,
+    text: 'Поддержки меньше и общаться хочется меньше. Изоляция усиливает выгорание — и одновременно является его симптомом.',
+    action: 'Замкнутый круг сложно разорвать в одиночку. Один контакт в неделю лучше чем ноль.' },
+  { id:'control_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['control'], badgeClass:'badge-orange',
+    check: data => avg3(data,'control') <= 5,
+    text: 'Ощущение контроля над жизнью и нагрузкой стабильно снижено. Потеря автономии — один из ключевых факторов риска выгорания.',
+    action: 'Найди одно решение в день которое принимаешь сам. Это возвращает ощущение контроля быстрее чем кажется.' },
+
+  // ── УРОВЕНЬ 2: пары ──
+  { id:'sleep_energy', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['sleep','energy'], badgeClass:'badge-orange',
+    check: data => avg3(data,'sleep') <= 5 && avg3(data,'energy') <= 5,
+    text: 'Сон не восстанавливает — энергии нет. Это прямая связь: сон первичен, энергия — следствие. Пока не нормализуется сон, энергия не вернётся.',
+    action: 'Начни со сна. Это единственная точка входа в этой связке.' },
+  { id:'body_energy', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['body','energy'], badgeClass:'badge-orange',
+    check: data => avg3(data,'body') <= 5 && avg3(data,'energy') <= 5,
+    text: 'Тело не получает ресурс — энергии взяться неоткуда. Физический и энергетический дефицит питают друг друга.',
+    action: 'Движение или питание — выбери одно и держись две недели. Эффект будет заметен.' },
+  { id:'meaning_energy', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['meaning','energy'], badgeClass:'badge-red',
+    check: data => avg3(data,'meaning') <= 5 && avg3(data,'energy') <= 5,
+    text: 'Нет смысла — нет топлива — нет сил. Классическая картина раннего выгорания. Мозг экономит энергию на том что не считает важным.',
+    action: 'Смысл здесь первичен. Энергия вернётся когда появится причина её тратить.' },
+  { id:'control_meaning', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['control','meaning'], badgeClass:'badge-red',
+    check: data => avg3(data,'control') <= 5 && avg3(data,'meaning') <= 5,
+    text: 'Нет контроля над днём — смысл исчезает следом. Автономия необходима чтобы работа ощущалась значимой.',
+    action: 'Верни хотя бы один элемент контроля: время начала работы, порядок задач, право отказать.' },
+  { id:'relations_meaning', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['relations','meaning'], badgeClass:'badge-red',
+    check: data => avg3(data,'relations') <= 5 && avg3(data,'meaning') <= 5,
+    text: 'Поддержки нет и работа не откликается. Два главных источника устойчивости отсутствуют одновременно. Высокий риск глубокого выгорания.',
+    action: 'Начни с отношений — они быстрее восстанавливают смысл чем попытки найти его в одиночку.' },
+  { id:'sleep_control', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['sleep','control'], badgeClass:'badge-orange',
+    check: data => avg3(data,'sleep') <= 5 && avg3(data,'control') <= 5,
+    text: 'Задач слишком много — голова не отключается ночью. Перегрузка и плохой сон замыкаются в круг: не спишь → меньше успеваешь → задач больше.',
+    action: 'Одно: за час до сна не смотреть на задачи. Даже если не сделано всё.' },
+  { id:'meaning_high_energy_low', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['meaning','energy','sleep'], badgeClass:'badge-red',
+    check: data => avg3(data,'meaning') >= 7 && avg3(data,'energy') <= 5 && avg3(data,'sleep') <= 5,
+    text: 'Интерес к работе есть — но тела на неё уже не хватает. Опасная комбинация: мотивация тянет вперёд пока физический ресурс заканчивается.',
+    action: 'Люди с высоким смыслом часто игнорируют тело и выгорают резко. Сейчас важно остановиться — не потому что не хочется, а потому что надо.' },
+  { id:'control_high_meaning_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['control','meaning'], badgeClass:'badge-orange',
+    check: data => avg3(data,'control') >= 7 && avg3(data,'meaning') <= 5,
+    text: 'Всё под контролем — но зачем непонятно. Это выгорание не от перегрузки, а от бессмысленности. Организационных ресурсов достаточно, внутренней мотивации нет.',
+    action: 'Стоит честно ответить: что именно в этой работе перестало быть важным?' },
+  { id:'relations_high_meaning_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['relations','meaning'], badgeClass:'badge-orange',
+    check: data => avg3(data,'relations') >= 7 && avg3(data,'meaning') <= 5,
+    text: 'Люди рядом есть, но работа не откликается. Поддержка помогает держаться — но не решает проблему смысла.',
+    action: 'Поговори с кем-то близким не о том как держаться, а о том что именно потеряло смысл.' },
+  { id:'energy_high_meaning_low', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:['energy','meaning'], badgeClass:'badge-orange',
+    check: data => avg3(data,'energy') >= 7 && avg3(data,'meaning') <= 5,
+    text: 'Энергия есть — но работа не откликается. Это выгорание от бессмысленности, не от перегрузки. Один из самых незаметных сценариев.',
+    action: 'Силы есть — значит есть ресурс чтобы что-то изменить. Момент подходящий.' },
+
+  // ── УРОВЕНЬ 3: тройки ──
+  { id:'phys_triple', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['energy','sleep','body'], badgeClass:'badge-red',
+    check: data => avg3(data,'energy') <= 5 && avg3(data,'sleep') <= 5 && avg3(data,'body') <= 5,
+    text: 'Энергия, сон и тело — все три снижены одновременно. Это физиологическое истощение по всем фронтам. Тело не получает ресурс ни через сон ни через движение.',
+    action: 'Три сигнала вместе — не совпадение. Организм в режиме экономии. Нужна реальная пауза, не "постараюсь лечь пораньше".' },
+  { id:'psych_triple', level:'🔴', badge:'ТРЕБУЕТ ВНИМАНИЯ',
+    cats:['meaning','relations','control'], badgeClass:'badge-red',
+    check: data => avg3(data,'meaning') <= 5 && avg3(data,'relations') <= 5 && avg3(data,'control') <= 5,
+    text: 'Смысл, отношения и контроль — три главных психологических ресурса одновременно в дефиците. Именно эта комбинация описывается в науке как ядро выгорания. Каждый из трёх усиливает два других.',
+    action: 'Три вместе хуже чем три по отдельности — они блокируют друг друга. Начни с отношений: поддержка извне открывает доступ к смыслу и контролю.' },
+  { id:'all_low', level:'🔴', badge:'ТРЕБУЕТ НЕМЕДЛЕННОГО ВНИМАНИЯ',
+    cats:['energy','sleep','body','meaning','relations','control'], badgeClass:'badge-red',
+    check: data => avg3(data,'energy') <= 5 && avg3(data,'sleep') <= 5 && avg3(data,'body') <= 5 && avg3(data,'meaning') <= 5 && avg3(data,'relations') <= 5 && avg3(data,'control') <= 5,
+    text: 'Все показатели на низком уровне одновременно. Это не отдельная усталость — системное истощение. Такое не проходит само.',
+    action: 'Нужна реальная остановка. Поговори с кем-то кому доверяешь — не о задачах, а о состоянии.' },
+
+  // ── УРОВЕНЬ 4: тренды ──
+  { id:'score_falling', level:'🟠', badge:'СТОИТ ДЕЙСТВОВАТЬ',
+    cats:[], badgeClass:'badge-orange',
+    check: data => data.length >= 3 && calcScore(data[data.length-1].answers) < calcScore(data[data.length-2].answers) && calcScore(data[data.length-2].answers) < calcScore(data[data.length-3].answers),
+    text: 'Общий индекс снижается три недели подряд. Это не колебания — это тренд.',
+    action: 'Посмотри что изменилось в тот момент когда пошло вниз. Конкретное событие проще изменить чем абстрактное состояние.' },
+  { id:'score_rising', level:'🟡', badge:'ХОРОШАЯ ДИНАМИКА',
+    cats:[], badgeClass:'badge-yellow',
+    check: data => data.length >= 3 && calcScore(data[data.length-1].answers) > calcScore(data[data.length-2].answers) && calcScore(data[data.length-2].answers) > calcScore(data[data.length-3].answers),
+    text: 'Три недели подряд индекс растёт. Что бы ты ни делал — это работает.',
+    action: 'Зафиксируй что изменилось в тот период когда пошло вверх. Это твой личный рецепт.' },
+  // ── ПОЗИТИВНЫЕ ──
+  { id:'energy_high', level:'🟢', badge:'ХОРОШО',
+    cats:['energy'], badgeClass:'badge-green',
+    check: data => avg3(data,'energy') >= 7,
+    text: 'Энергия стабильно высокая уже несколько недель.',
+    action: '' },
+  { id:'sleep_high', level:'🟢', badge:'ХОРОШО',
+    cats:['sleep'], badgeClass:'badge-green',
+    check: data => avg3(data,'sleep') >= 7,
+    text: 'Сон восстанавливает. Это фундамент на котором держится всё остальное.',
+    action: '' },
+  { id:'meaning_high', level:'🟢', badge:'ХОРОШО',
+    cats:['meaning'], badgeClass:'badge-green',
+    check: data => avg3(data,'meaning') >= 7,
+    text: 'Смысл в работе высокий. Это главный защитный фактор от выгорания.',
+    action: '' },
+  { id:'relations_high', level:'🟢', badge:'ХОРОШО',
+    cats:['relations'], badgeClass:'badge-green',
+    check: data => avg3(data,'relations') >= 7,
+    text: 'Поддержка и связь с людьми на хорошем уровне.',
+    action: '' },
+  { id:'control_high', level:'🟢', badge:'ХОРОШО',
+    cats:['control'], badgeClass:'badge-green',
+    check: data => avg3(data,'control') >= 7,
+    text: 'Ощущение контроля над своей жизнью и нагрузкой стабильно высокое.',
+    action: '' },
+  { id:'all_high', level:'🟢', badge:'ОТЛИЧНОЕ СОСТОЯНИЕ',
+    cats:[], badgeClass:'badge-green',
+    check: data => calcScore(data[data.length-1].answers) >= 8,
+    text: 'Общий индекс на высоком уровне. Все основные ресурсы в норме.',
+    action: '' },
+  { id:'energy_recovered', level:'🟢', badge:'ВОССТАНОВЛЕНИЕ',
+    cats:['energy'], badgeClass:'badge-green',
+    check: data => { if(data.length<4) return false; const prev=avg3(data.slice(0,-1),'energy'); const last=catScore(data[data.length-1].answers,'energy'); return prev<=5 && last>=7; },
+    text: 'Энергия вернулась после просадки. Восстановление происходит.',
+    action: '' },
+  { id:'sleep_recovered', level:'🟢', badge:'ВОССТАНОВЛЕНИЕ',
+    cats:['sleep'], badgeClass:'badge-green',
+    check: data => { if(data.length<4) return false; const prev=avg3(data.slice(0,-1),'sleep'); const last=catScore(data[data.length-1].answers,'sleep'); return prev<=5 && last>=7; },
+    text: 'Сон нормализовался после нескольких недель просадки.',
+    action: '' },
+  { id:'meaning_recovered', level:'🟢', badge:'ВОССТАНОВЛЕНИЕ',
+    cats:['meaning'], badgeClass:'badge-green',
+    check: data => { if(data.length<4) return false; const prev=avg3(data.slice(0,-1),'meaning'); const last=catScore(data[data.length-1].answers,'meaning'); return prev<=5 && last>=7; },
+    text: 'Смысл вернулся после периода апатии. Хороший знак.',
+    action: '' },
+  { id:'sharp_rise', level:'🟢', badge:'РЕЗКИЙ РОСТ',
+    cats:[], badgeClass:'badge-green',
+    check: data => { if(data.length<2) return false; const last=calcScore(data[data.length-1].answers); const prev=calcScore(data[data.length-2].answers); return last-prev>=1.5; },
+    text: 'Резкий рост за последнюю неделю. Что-то изменилось в лучшую сторону.',
+    action: '' },
+  { id:'stable_high', level:'🟢', badge:'СТАБИЛЬНОСТЬ',
+    cats:[], badgeClass:'badge-green',
+    check: data => { if(data.length<4) return false; const last4=data.slice(-4); return last4.every(d=>calcScore(d.answers)>=7); },
+    text: 'Четыре недели подряд индекс держится выше 7. Это настоящая стабильность.',
+    action: '' },
+  { id:'meaning_energy_high', level:'🟢', badge:'ХОРОШО',
+    cats:['meaning','energy'], badgeClass:'badge-green',
+    check: data => avg3(data,'meaning') >= 7 && avg3(data,'energy') >= 7,
+    text: 'Смысл и энергия одновременно высокие — лучшая комбинация для устойчивости.',
+    action: '' },
+
+  { id:'meaning_falls_first', level:'🔴', badge:'РАННИЙ СИГНАЛ',
+    cats:['meaning'], badgeClass:'badge-red',
+    check: data => { if(data.length<3) return false; const m1=catScore(data[data.length-1].answers,'meaning'); const m2=catScore(data[data.length-2].answers,'meaning'); const overall1=calcScore(data[data.length-1].answers); const overall2=calcScore(data[data.length-2].answers); return m1<m2 && m1<4 && overall1>=overall2-0.5; },
+    text: 'Смысл начал снижаться пока остальные показатели ещё в норме. Именно так начинается выгорание — сначала уходит смысл, потом энергия, потом всё остальное.',
+    action: 'Ранний сигнал — самый ценный. Сейчас проще остановить чем потом восстанавливаться.' },
+];
+
+function avg3(data, catId){
+  const last3 = data.slice(-3);
+  return last3.reduce((s,d)=>s+catScore(d.answers,catId),0)/last3.length;
+}
+
+function showInsights(){
+  showScreen('screen-insights');
+  const data = load();
+  const list = document.getElementById('insights-list');
+
+  if(data.length < 3){
+    list.innerHTML=`<div class="no-insights">◎<br><br>Нужно минимум 3 чекина<br>чтобы появились инсайты</div>`;
+    return;
+  }
+
+  const active = INSIGHTS.filter(ins=>ins.check(data));
+
+  if(!active.length){
+    list.innerHTML=`<div class="no-insights">✦<br><br>Всё в порядке — явных паттернов не обнаружено.<br>Продолжай следить за динамикой.</div>`;
+    return;
+  }
+
+  // sort by severity: red first
+  const order = {'🔴':0,'🟠':1,'🟡':2};
+  active.sort((a,b)=>(order[a.level]||2)-(order[b.level]||2));
+
+  const inotes = JSON.parse(localStorage.getItem('bd3-inotes')||'{}');
+
+  list.innerHTML = active.map((ins,i)=>{
+    const savedNote = inotes[ins.id] || '';
+    const placeholder = ins.action || ACTION_PLACEHOLDERS[i % ACTION_PLACEHOLDERS.length];
+    const displayText = savedNote || placeholder;
+    const isPlaceholder = !savedNote;
+    return `
+    <div class="insight-card">
+      <div class="insight-badge ${ins.badgeClass}">${ins.level} ${ins.badge}</div>
+      ${ins.cats.length?`<div class="insight-cats">${ins.cats.map(c=>c.toUpperCase()).join(' · ')}</div>`:''}
+      <div class="insight-text">${ins.text}</div>
+      <div class="insight-action-wrap" id="iaw-${ins.id}">
+        <div class="insight-action-view" onclick="startEditInsightNote('${ins.id}')" style="border-left:2px solid #e05535;padding:8px 12px;cursor:text;min-height:28px">
+          <div id="ian-text-${ins.id}" style="font-size:12px;line-height:1.6;color:${isPlaceholder?'rgba(245,243,239,.35)':'rgba(245,243,239,.55)'};font-style:${isPlaceholder?'italic':'normal'};white-space:pre-wrap">${displayText}</div>
+        </div>
+        <div id="ian-edit-${ins.id}" style="display:none">
+          <textarea id="ian-input-${ins.id}" style="width:100%;background:transparent;border:none;border-left:2px solid #e05535;color:#f5f3ef;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:300;padding:8px 12px;resize:none;outline:none;box-sizing:border-box;line-height:1.6;overflow:hidden" rows="2" placeholder="${placeholder}"></textarea>
+          <button onclick="saveInsightNote('${ins.id}','${placeholder.replace(/'/g,"\'")}')" style="margin-top:4px;padding:6px 14px;background:transparent;border:1px solid rgba(245,243,239,.12);color:rgba(245,243,239,.4);font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.12em;cursor:pointer" id="ian-btn-${ins.id}">СОХРАНИТЬ</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // init textareas with saved notes
+  active.forEach(ins=>{
+    const saved = inotes[ins.id]||'';
+    const ta = document.getElementById('ian-input-'+ins.id);
+    if(ta){ ta.value=saved; ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=ta.scrollHeight+'px';}); }
+  });
+}
+
+const ACTION_PLACEHOLDERS = [
+  'Зафиксируй что изменилось в тот период когда пошло вверх. Это твой личный рецепт.',
+  'Запиши что именно помогло — чтобы вернуться к этому когда станет тяжелее.',
+  'Что ты делал иначе на этой неделе? Стоит запомнить.',
+  'Напиши что изменилось — через месяц это может оказаться важным.',
+  'Зафиксируй момент. Что сработало — повторяемо.',
+  'Запомни это состояние. Что его создало?',
+  'Что конкретно поменялось? Запиши пока свежо.',
+  'Твои наблюдения здесь важнее любого совета.',
+  'Что ты сделал или не сделал на этой неделе — запиши.',
+  'Напиши своими словами что происходит. Это твой дневник.',
+];
+
+function startEditInsightNote(id){
+  document.querySelector(`#iaw-${id} .insight-action-view`).style.display='none';
+  const edit = document.getElementById('ian-edit-'+id);
+  edit.style.display='block';
+  const ta = document.getElementById('ian-input-'+id);
+  ta.focus();
+  ta.style.height='auto';
+  ta.style.height=ta.scrollHeight+'px';
+}
+
+function saveInsightNote(id, placeholder){
+  const ta = document.getElementById('ian-input-'+id);
+  const note = ta.value.trim();
+  const inotes = JSON.parse(localStorage.getItem('bd3-inotes')||'{}');
+  if(note) inotes[id]=note; else delete inotes[id];
+  localStorage.setItem('bd3-inotes', JSON.stringify(inotes));
+  // update view
+  const textEl = document.getElementById('ian-text-'+id);
+  const displayText = note || placeholder;
+  textEl.textContent = displayText;
+  textEl.style.color = note ? 'rgba(245,243,239,.55)' : 'rgba(245,243,239,.35)';
+  textEl.style.fontStyle = note ? 'normal' : 'italic';
+  document.querySelector(`#iaw-${id} .insight-action-view`).style.display='block';
+  document.getElementById('ian-edit-'+id).style.display='none';
+  const btn = document.getElementById('ian-btn-'+id);
+  btn.textContent='✓ СОХРАНЕНО';
+  setTimeout(()=>{ btn.textContent='СОХРАНИТЬ'; },1200);
+}
+</script>
+<script>
+// ── SUPABASE SYNC ──
+const SUPABASE_URL = 'https://edejcduktmvmsjhlpmts.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Cl5hKeOqwzMweeinTteLFw_-qxfiGw6';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+
+async function initAuth(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    currentUser = session.user;
+    migrateLocalToSupabase();
+  }
+  updateAccountSection();
+  sb.auth.onAuthStateChange((_event, session) => {
+    const wasLoggedIn = !!currentUser;
+    currentUser = session ? session.user : null;
+    if(currentUser && !wasLoggedIn) migrateLocalToSupabase();
+    updateAccountSection();
+  });
+}
+
+function openSyncModal(){
+  if(document.getElementById('sync-modal-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'sync-modal-overlay';
+  overlay.id = 'sync-modal-overlay';
+  overlay.innerHTML = `
+    <div class="sync-modal">
+      <div class="sync-modal-title">СИНХРОНИЗАЦИЯ ДАННЫХ</div>
+      <button class="sync-google-btn" onclick="signInWithGoogle()">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+        Войти через Google
+      </button>
+      <div class="sync-divider">ИЛИ</div>
+      <input class="sync-email-input" id="sync-email" type="email" placeholder="your@email.com" autocomplete="email">
+      <button class="cta" id="sync-email-btn" onclick="signInWithEmail()" style="width:100%">Отправить ссылку</button>
+      <div id="sync-msg" class="sync-msg"></div>
+      <button onclick="closeSyncModal()" style="margin-top:20px;width:100%;background:transparent;border:none;color:rgba(245,243,239,.25);font-family:'Fira Code',monospace;font-size:9px;letter-spacing:.1em;cursor:pointer;padding:8px">ОТМЕНА</button>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target===overlay) closeSyncModal(); });
+  document.querySelector('.phone').appendChild(overlay);
+}
+
+function closeSyncModal(){
+  const o = document.getElementById('sync-modal-overlay');
+  if(o) o.remove();
+}
+
+async function signInWithGoogle(){
+  const msgEl = document.getElementById('sync-msg');
+  if(msgEl){ msgEl.style.display='none'; }
+  try{
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.href }
+    });
+    if(error) throw error;
+  }catch(e){
+    if(msgEl){ msgEl.textContent=e.message||'Ошибка входа'; msgEl.className='sync-msg err'; msgEl.style.display='block'; }
+  }
+}
+
+async function signInWithEmail(){
+  const emailEl = document.getElementById('sync-email');
+  const msgEl = document.getElementById('sync-msg');
+  const btn = document.getElementById('sync-email-btn');
+  const email = emailEl ? emailEl.value.trim() : '';
+  if(!email || !email.includes('@')){
+    msgEl.textContent='Введи корректный email'; msgEl.className='sync-msg err'; msgEl.style.display='block';
+    return;
+  }
+  btn.disabled=true; btn.textContent='...';
+  try{
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.href } });
+    if(error) throw error;
+    msgEl.textContent='✓ Ссылка отправлена — проверь почту'; msgEl.className='sync-msg ok'; msgEl.style.display='block';
+    btn.textContent='Отправлено';
+  }catch(e){
+    msgEl.textContent=e.message||'Ошибка отправки'; msgEl.className='sync-msg err'; msgEl.style.display='block';
+    btn.disabled=false; btn.textContent='Отправить ссылку';
+  }
+}
+
+async function migrateLocalToSupabase(){
+  if(!currentUser) return;
+  const data = load();
+  if(!data.length) return;
+  try{
+    const rows = data.map(d=>({
+      user_id: currentUser.id,
+      date: d.date,
+      answers: d.answers,
+      note: d.note||null,
+      score: calcScore(d.answers)
+    }));
+    await sb.from('checkins').upsert(rows, { onConflict: 'user_id,date', ignoreDuplicates: true });
+  }catch(e){ console.warn('Migration failed:', e); }
+}
+
+function updateAccountSection(){
+  const el = document.getElementById('account-section');
+  if(!el) return;
+  if(currentUser){
+    const label = currentUser.email || currentUser.user_metadata?.full_name || currentUser.id.slice(0,8)+'…';
+    el.innerHTML = `
+      <div class="settings-row" style="cursor:default">
+        <div class="settings-label" style="font-size:12px;color:rgba(245,243,239,.45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px">${label}</div>
+        <div style="font-family:'Fira Code',monospace;font-size:8px;color:#5c8c6e;letter-spacing:.1em;flex-shrink:0">СИНХР ✓</div>
+      </div>
+      <div class="settings-row" onclick="signOut()">
+        <div class="settings-label" style="color:rgba(245,243,239,.45)">Выйти из аккаунта</div>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="settings-row" onclick="openSyncModal()">
+        <div class="settings-label">Синхронизировать данные</div>
+        <div style="font-size:16px;opacity:.3">↑</div>
+      </div>`;
+  }
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  currentUser = null;
+  updateAccountSection();
+}
+</script>
+<script>
+// ── TELEGRAM MINI APP ──
+const RAILWAY_URL = 'https://burnout.up.railway.app';
+let tgUser = null;
+
+async function initTelegram() {
+  if (!window.Telegram?.WebApp) return;
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+  tg.BackButton.hide();
+
+  const initData = tg.initData;
+  if (!initData) return;
+
+  try {
+    const res = await fetch(`${RAILWAY_URL}/auth/telegram`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+    tgUser = data.user;
+    await syncFromServer(initData);
+  } catch (e) { console.warn('TG auth failed:', e); }
+}
+
+async function syncFromServer(initData) {
+  try {
+    const res = await fetch(`${RAILWAY_URL}/checkins/get`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok || !data.checkins.length) return;
+    const local = load();
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    // Нормализуем до секунд — исключаем уже существующие и удалённые в корзину
+    const localDates = new Set(local.map(d => d.date.slice(0, 19)));
+    const trashedDates = new Set(trash.map(d => d.date.slice(0, 19)));
+    const newFromServer = data.checkins
+      .filter(c => !localDates.has(c.date.slice(0, 19)) && !trashedDates.has(c.date.slice(0, 19)))
+      .map(c => ({ date: c.date, answers: c.answers, note: c.note }));
+    if (newFromServer.length) {
+      const merged = [...local, ...newFromServer].sort((a, b) => new Date(a.date) - new Date(b.date));
+      save(merged);
+      renderMain();
+    }
+  } catch (e) { console.warn('Sync failed:', e); }
+}
+
+async function saveTgCheckin(entry) {
+  if (!tgUser || !window.Telegram?.WebApp?.initData) return;
+  try {
+    const calcS = a => +(Object.values(a).reduce((s,x)=>s+x,0)/Object.values(a).length*2).toFixed(1);
+    await fetch(`${RAILWAY_URL}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: window.Telegram.WebApp.initData,
+        checkin: { ...entry, score: calcS(entry.answers) },
+      }),
+    });
+  } catch (e) { console.warn('TG checkin save failed:', e); }
+}
+
+// Сохраняем напоминание на сервер при изменении настроек
+async function syncReminderToServer(hour, minute, enabled) {
+  if (!tgUser || !window.Telegram?.WebApp?.initData) return;
+  try {
+    await fetch(`${RAILWAY_URL}/reminder/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: window.Telegram.WebApp.initData,
+        hour, minute, enabled,
+      }),
+    });
+  } catch (e) { console.warn('Reminder sync failed:', e); }
+}
+
+window._saveTgCheckin = saveTgCheckin;
+window._syncReminderToServer = syncReminderToServer;
+</script>
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+renderMain();
+initNotifications();
+initAuth();
+initTelegram();
+window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
+</script>
+</body>
+</html>
