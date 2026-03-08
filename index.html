@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#0D0B09">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+
 <title>Детектор выгорания</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -402,6 +402,9 @@ canvas#chart{width:100%;height:100%}
         <div class="settings-row" onclick="openTimePicker()">
           <div class="settings-label">Время напоминания</div>
           <div id="notif-display" style="font-family:'Fira Code',monospace;font-size:13px;color:rgba(245,243,239,.4)">20:00</div>
+        </div>
+        <div class="settings-row" onclick="applyNotification()" style="justify-content:center">
+          <div class="settings-label" style="color:#e05535;text-align:center" id="notif-apply-lbl">Применить уведомление</div>
         </div>
       </div>
 
@@ -1049,13 +1052,13 @@ function openTimePicker(){
         <div class="time-picker-sel"></div>
         <div class="time-picker-col" id="tp-hh">
           <div style="height:88px"></div>
-          ${hours.map(h=>`<div class="time-picker-item" data-val="${h}">${h}</div>`).join('')}
+          ${hours.map((h,i)=>`<div class="time-picker-item" data-val="${h}" onclick="scrollToItem('tp-hh',${i})">${h}</div>`).join('')}
           <div style="height:88px"></div>
         </div>
         <div class="time-picker-sep">:</div>
         <div class="time-picker-col" id="tp-mm">
           <div style="height:88px"></div>
-          ${minutes.map(m=>`<div class="time-picker-item" data-val="${m}">${m}</div>`).join('')}
+          ${minutes.map((m,i)=>`<div class="time-picker-item" data-val="${m}" onclick="scrollToItem('tp-mm',${i})">${m}</div>`).join('')}
           <div style="height:88px"></div>
         </div>
       </div>
@@ -1073,6 +1076,12 @@ function openTimePicker(){
     hhCol.addEventListener('scroll', updateActiveItems);
     mmCol.addEventListener('scroll', updateActiveItems);
   }, 20);
+}
+
+function scrollToItem(colId, idx){
+  const col = document.getElementById(colId);
+  if(!col) return;
+  col.scrollTo({ top: idx * 44, behavior: 'smooth' });
 }
 
 function updateActiveItems(){
@@ -1103,17 +1112,22 @@ function closeTimePicker(){
   if(o) o.remove();
 }
 
+async function applyNotification(){
+  const lbl = document.getElementById('notif-apply-lbl');
+  try {
+    await scheduleNotification();
+    if(lbl){ lbl.textContent='✓ Уведомление установлено'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2000); }
+  } catch(e) {
+    if(lbl){ lbl.textContent='Ошибка — разреши уведомления'; setTimeout(()=>{ lbl.textContent='Применить уведомление'; },2500); }
+  }
+}
+
 function setSetting(key, val){
   const s = loadSettings();
   s[key] = val;
   localStorage.setItem('bd3-settings', JSON.stringify(s));
   showSettings();
-  scheduleNotification();
 }
-
-renderMain();
-initNotifications();
-window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 
 // ── INSIGHTS ──
 const INSIGHTS = [
@@ -1402,6 +1416,9 @@ function saveInsightNote(id, placeholder){
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
+renderMain();
+initNotifications();
+window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
 </body>
 </html>
