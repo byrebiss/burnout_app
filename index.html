@@ -418,36 +418,6 @@ canvas#chart{width:100%;height:100%}
           <div class="settings-label">Время напоминания</div>
           <div id="notif-display" style="font-family:'Fira Code',monospace;font-size:13px;color:rgba(245,243,239,.4)">20:00</div>
         </div>
-        <div class="settings-row" style="justify-content:space-between">
-          <div class="settings-label">Часовой пояс</div>
-          <select id="tz-select" onchange="saveTzSetting(this.value)" style="background:#161210;border:none;color:rgba(245,243,239,.5);font-family:'Fira Code',monospace;font-size:11px;outline:none;cursor:pointer;max-width:160px">
-            <option value="-12">UTC-12</option>
-            <option value="-11">UTC-11</option>
-            <option value="-10">UTC-10</option>
-            <option value="-9">UTC-9</option>
-            <option value="-8">UTC-8</option>
-            <option value="-7">UTC-7</option>
-            <option value="-6">UTC-6</option>
-            <option value="-5">UTC-5</option>
-            <option value="-4">UTC-4</option>
-            <option value="-3">UTC-3</option>
-            <option value="-2">UTC-2</option>
-            <option value="-1">UTC-1</option>
-            <option value="0">UTC+0</option>
-            <option value="1">UTC+1</option>
-            <option value="2">UTC+2</option>
-            <option value="3" selected>UTC+3 (Москва)</option>
-            <option value="4">UTC+4</option>
-            <option value="5">UTC+5</option>
-            <option value="6">UTC+6</option>
-            <option value="7">UTC+7</option>
-            <option value="8">UTC+8</option>
-            <option value="9">UTC+9</option>
-            <option value="10">UTC+10</option>
-            <option value="11">UTC+11</option>
-            <option value="12">UTC+12</option>
-          </select>
-        </div>
         <div class="settings-row" onclick="applyNotification()" style="justify-content:center">
           <div class="settings-label" style="color:#e05535;text-align:center" id="notif-apply-lbl">Применить уведомление</div>
         </div>
@@ -601,18 +571,7 @@ function showScreen(id){
   });
 }
 function goBack(to){ showScreen(to); if(to==='screen-main') renderMain(); if(to==='screen-history') showHistory(); }
-function resetData(){
-  if(!confirm('Сбросить все данные?')) return;
-  localStorage.removeItem('bd3');
-  localStorage.removeItem('bd3-trash');
-  localStorage.removeItem('bd3-inotes');
-  // Удаляем данные на сервере если авторизован через Telegram
-  if(window.Telegram?.WebApp?.initData && window._deleteTgCheckins) {
-    window._deleteTgCheckins();
-  }
-  renderMain();
-  showScreen('screen-main');
-}
+function resetData(){ if(!confirm('Сбросить все данные?')) return; localStorage.removeItem('bd3'); localStorage.removeItem('bd3-trash'); localStorage.removeItem('bd3-inotes'); renderMain(); showScreen('screen-main'); }
 
 // ── MAIN ──
 function toggleCompare(){ compareMode=!compareMode; renderMain(); }
@@ -1044,9 +1003,24 @@ function doDeleteCheckin(idx){
 }
 function deleteCheckin(idx){ confirmDelete(idx); }
 
+function purgeOldTrash(){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const cutoff = Date.now() - 10 * 864e5;
+  const fresh = trash.filter(d => !d._deletedAt || new Date(d._deletedAt) > cutoff);
+  if(fresh.length !== trash.length) localStorage.setItem('bd3-trash', JSON.stringify(fresh));
+  return fresh;
+}
+
+function permanentlyDeleteFromTrash(trashIdx){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  trash.splice(trashIdx, 1);
+  localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  showTrash();
+}
+
 function showTrash(){
   showScreen('screen-trash');
-  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  const trash = purgeOldTrash();
   const list = document.getElementById('trash-list');
   if(!trash.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">◎</div>Корзина пуста</div>';
@@ -1054,6 +1028,9 @@ function showTrash(){
   }
   list.innerHTML = '<div class="h-list">' + trash.map((d,i)=>{
     const sc = calcScore(d.answers);
+    const daysLeft = d._deletedAt
+      ? Math.ceil((new Date(d._deletedAt).getTime() + 10*864e5 - Date.now()) / 864e5)
+      : 10;
     return `<div class="h-item" style="cursor:pointer" onclick="showTrashDetail(${i})">
       <div style="flex:1">
         <div class="h-date">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
@@ -1061,10 +1038,12 @@ function showTrash(){
         <div class="h-cats" style="margin-top:6px">
           ${CATEGORIES.map(cat=>`<div class="h-cat">${cat.name.slice(0,3)}:<b>${catScore(d.answers,cat.id)}</b></div>`).join('')}
         </div>
+        <div style="font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.2);margin-top:5px">удалится через ${daysLeft} дн.</div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         <div class="h-score">${sc}<span>/10</span></div>
         <button onclick="event.stopPropagation();restoreCheckin(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(245,243,239,.15);color:rgba(245,243,239,.4);padding:4px 10px;cursor:pointer">ВЕРНУТЬ</button>
+        <button onclick="event.stopPropagation();permanentlyDeleteFromTrash(${i})" style="font-family:'Fira Code',monospace;font-size:8px;letter-spacing:.1em;background:transparent;border:1px solid rgba(224,85,53,.2);color:rgba(224,85,53,.5);padding:4px 10px;cursor:pointer">× УДАЛИТЬ</button>
       </div>
     </div>`;
   }).join('') + '</div>';
@@ -1094,8 +1073,9 @@ function showTrashDetail(trashIdx){
       }).join('')}
     </div>
     ${d.note?`<div style="width:260px;margin-top:24px;text-align:left;border-left:2px solid #e05535;padding:10px 12px;background:#161210;font-size:12px;color:rgba(245,243,239,.55);font-style:italic;line-height:1.7">${d.note}</div>`:''}
-    <div style="width:260px;text-align:center;margin-top:20px;margin-bottom:24px">
+    <div style="width:260px;text-align:center;margin-top:20px;display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
       <button onclick="restoreCheckin(${trashIdx})" style="background:transparent;border:none;color:rgba(245,243,239,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">Восстановить чекин</button>
+      <button onclick="permanentlyDeleteFromTrash(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
     </div>`;
 }
 
@@ -1182,7 +1162,7 @@ function openTimePicker(){
     const hhCol = document.getElementById('tp-hh');
     const mmCol = document.getElementById('tp-mm');
     hhCol.scrollTop = curHH * 44;
-    mmCol.scrollTop = (curMM / 5) * 44;
+    mmCol.scrollTop = curMM * 44;
     updateActiveItems();
     hhCol.addEventListener('scroll', updateActiveItems);
     mmCol.addEventListener('scroll', updateActiveItems);
@@ -1209,10 +1189,8 @@ function updateActiveItems(){
 function applyTimePicker(){
   const hhCol = document.getElementById('tp-hh');
   const mmCol = document.getElementById('tp-mm');
-  const hhIdx = Math.round(hhCol.scrollTop/44);
-  const mmIdx = Math.round(mmCol.scrollTop/44);
-  const hh = String(hhIdx).padStart(2,'0');
-  const mm = String(mmIdx * 5).padStart(2,'0'); // каждый шаг = 5 минут
+  const hh = String(Math.round(hhCol.scrollTop/44)).padStart(2,'0');
+  const mm = String(Math.round(mmCol.scrollTop/44)).padStart(2,'0');
   const time = hh+':'+mm;
   setSetting('notifTime', time);
   const el = document.getElementById('notif-display');
@@ -1696,9 +1674,9 @@ async function syncFromServer(initData) {
     const data = await res.json();
     if (!data.ok || !data.checkins.length) return;
     const local = load();
-    const localDates = new Set(local.map(d => d.date));
+    const localDates = new Set(local.map(d => d.date.slice(0, 19)));
     const newFromServer = data.checkins
-      .filter(c => !localDates.has(c.date))
+      .filter(c => !localDates.has(c.date.slice(0, 19)))
       .map(c => ({ date: c.date, answers: c.answers, note: c.note }));
     if (newFromServer.length) {
       const merged = [...local, ...newFromServer].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1723,47 +1701,23 @@ async function saveTgCheckin(entry) {
   } catch (e) { console.warn('TG checkin save failed:', e); }
 }
 
+// Сохраняем напоминание на сервер при изменении настроек
 async function syncReminderToServer(hour, minute, enabled) {
   if (!tgUser || !window.Telegram?.WebApp?.initData) return;
   try {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await fetch(`${RAILWAY_URL}/reminder/set`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         initData: window.Telegram.WebApp.initData,
-        hour, minute, enabled, timezone,
+        hour, minute, enabled,
       }),
     });
   } catch (e) { console.warn('Reminder sync failed:', e); }
 }
 
-async function deleteTgCheckins() {
-  if (!window.Telegram?.WebApp?.initData) return;
-  try {
-    await fetch(`${RAILWAY_URL}/checkins/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: window.Telegram.WebApp.initData }),
-    });
-  } catch (e) { console.warn('TG delete failed:', e); }
-}
-
-window._deleteTgCheckins = deleteTgCheckins;
-window._syncReminderToServer = syncReminderToServer;
 window._saveTgCheckin = saveTgCheckin;
-
-async function deleteTgCheckins() {
-  if (!window.Telegram?.WebApp?.initData) return;
-  try {
-    await fetch(`${RAILWAY_URL}/checkins/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: window.Telegram.WebApp.initData }),
-    });
-  } catch (e) { console.warn('Delete checkins failed:', e); }
-}
-window._deleteTgCheckins = deleteTgCheckins;
+window._syncReminderToServer = syncReminderToServer;
 </script>
 <script>
 if('serviceWorker' in navigator){
@@ -1773,7 +1727,6 @@ renderMain();
 initNotifications();
 initAuth();
 initTelegram();
-initTzSelect();
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
 </body>
