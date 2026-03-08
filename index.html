@@ -998,6 +998,14 @@ function doDeleteCheckin(idx){
   trash.unshift(item);
   save(data);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
+  // Удаляем с сервера
+  if(window.Telegram?.WebApp?.initData){
+    fetch(`${RAILWAY_URL}/checkin/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: window.Telegram.WebApp.initData, date: item.date }),
+    }).catch(e => console.warn('Server delete failed:', e));
+  }
   showScreen('screen-history');
   showHistory();
 }
@@ -1012,6 +1020,18 @@ function purgeOldTrash(){
 }
 
 function permanentlyDeleteFromTrash(trashIdx){
+  const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+  // показываем подтверждение
+  const wrap = document.getElementById(`perm-del-${trashIdx}`);
+  if(!wrap) return;
+  wrap.innerHTML = `
+    <span style="color:rgba(245,243,239,.35);font-size:11px;margin-right:8px">Удалить навсегда?</span>
+    <span onclick="confirmPermanentDelete(${trashIdx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Да</span>
+    <span style="color:rgba(245,243,239,.2);margin:0 6px">·</span>
+    <span onclick="showTrash()" style="color:rgba(245,243,239,.35);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Нет</span>`;
+}
+
+function confirmPermanentDelete(trashIdx){
   const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
   trash.splice(trashIdx, 1);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
@@ -1034,11 +1054,12 @@ function showTrash(){
     return `<div class="h-item" style="cursor:pointer" onclick="showTrashDetail(${i})">
       <div style="flex:1">
         <div class="h-date">${new Date(d.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
-        ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.3);margin-top:6px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px'>${d.note}</div>`:''}
+        ${d.note?`<div style='font-size:11px;color:rgba(245,243,239,.3);margin-top:6px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px'>${d.note}</div>`:''}
         <div class="h-cats" style="margin-top:6px">
           ${CATEGORIES.map(cat=>`<div class="h-cat">${cat.name.slice(0,3)}:<b>${catScore(d.answers,cat.id)}</b></div>`).join('')}
         </div>
         <div style="font-family:'Fira Code',monospace;font-size:7px;color:rgba(245,243,239,.2);margin-top:5px">удалится через ${daysLeft} дн.</div>
+        <div id="perm-del-${i}" style="margin-top:6px"></div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         <div class="h-score">${sc}<span>/10</span></div>
@@ -1075,7 +1096,9 @@ function showTrashDetail(trashIdx){
     ${d.note?`<div style="width:260px;margin-top:24px;text-align:left;border-left:2px solid #e05535;padding:10px 12px;background:#161210;font-size:12px;color:rgba(245,243,239,.55);font-style:italic;line-height:1.7">${d.note}</div>`:''}
     <div style="width:260px;text-align:center;margin-top:20px;display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
       <button onclick="restoreCheckin(${trashIdx})" style="background:transparent;border:none;color:rgba(245,243,239,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">Восстановить чекин</button>
-      <button onclick="permanentlyDeleteFromTrash(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
+      <div id="perm-del-detail">
+        <button onclick="permanentlyDeleteFromTrashDetail(${trashIdx})" style="background:transparent;border:none;color:rgba(224,85,53,.5);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:0">Удалить навсегда</button>
+      </div>
     </div>`;
 }
 
@@ -1089,6 +1112,16 @@ function restoreCheckin(trashIdx){
   save(data);
   localStorage.setItem('bd3-trash', JSON.stringify(trash));
   showTrash();
+}
+
+function permanentlyDeleteFromTrashDetail(trashIdx){
+  const wrap = document.getElementById('perm-del-detail');
+  if(!wrap) return;
+  wrap.innerHTML = `
+    <span style="color:rgba(245,243,239,.35);font-size:11px;display:block;margin-bottom:8px">Удалить навсегда?</span>
+    <span onclick="confirmPermanentDelete(${trashIdx})" style="color:#e05535;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Да, удалить</span>
+    <span style="color:rgba(245,243,239,.2);margin:0 10px">·</span>
+    <span onclick="showTrashDetail(${trashIdx})" style="color:rgba(245,243,239,.35);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer">Нет</span>`;
 }
 
 
@@ -1674,9 +1707,12 @@ async function syncFromServer(initData) {
     const data = await res.json();
     if (!data.ok || !data.checkins.length) return;
     const local = load();
+    const trash = JSON.parse(localStorage.getItem('bd3-trash')||'[]');
+    // Нормализуем до секунд, исключаем удалённые
     const localDates = new Set(local.map(d => d.date.slice(0, 19)));
+    const trashedDates = new Set(trash.map(d => d.date.slice(0, 19)));
     const newFromServer = data.checkins
-      .filter(c => !localDates.has(c.date.slice(0, 19)))
+      .filter(c => !localDates.has(c.date.slice(0, 19)) && !trashedDates.has(c.date.slice(0, 19)))
       .map(c => ({ date: c.date, answers: c.answers, note: c.note }));
     if (newFromServer.length) {
       const merged = [...local, ...newFromServer].sort((a, b) => new Date(a.date) - new Date(b.date));
