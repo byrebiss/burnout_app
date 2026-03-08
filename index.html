@@ -418,6 +418,36 @@ canvas#chart{width:100%;height:100%}
           <div class="settings-label">Время напоминания</div>
           <div id="notif-display" style="font-family:'Fira Code',monospace;font-size:13px;color:rgba(245,243,239,.4)">20:00</div>
         </div>
+        <div class="settings-row" style="justify-content:space-between">
+          <div class="settings-label">Часовой пояс</div>
+          <select id="tz-select" onchange="saveTzSetting(this.value)" style="background:#161210;border:none;color:rgba(245,243,239,.5);font-family:'Fira Code',monospace;font-size:11px;outline:none;cursor:pointer;max-width:160px">
+            <option value="-12">UTC-12</option>
+            <option value="-11">UTC-11</option>
+            <option value="-10">UTC-10</option>
+            <option value="-9">UTC-9</option>
+            <option value="-8">UTC-8</option>
+            <option value="-7">UTC-7</option>
+            <option value="-6">UTC-6</option>
+            <option value="-5">UTC-5</option>
+            <option value="-4">UTC-4</option>
+            <option value="-3">UTC-3</option>
+            <option value="-2">UTC-2</option>
+            <option value="-1">UTC-1</option>
+            <option value="0">UTC+0</option>
+            <option value="1">UTC+1</option>
+            <option value="2">UTC+2</option>
+            <option value="3" selected>UTC+3 (Москва)</option>
+            <option value="4">UTC+4</option>
+            <option value="5">UTC+5</option>
+            <option value="6">UTC+6</option>
+            <option value="7">UTC+7</option>
+            <option value="8">UTC+8</option>
+            <option value="9">UTC+9</option>
+            <option value="10">UTC+10</option>
+            <option value="11">UTC+11</option>
+            <option value="12">UTC+12</option>
+          </select>
+        </div>
         <div class="settings-row" onclick="applyNotification()" style="justify-content:center">
           <div class="settings-label" style="color:#e05535;text-align:center" id="notif-apply-lbl">Применить уведомление</div>
         </div>
@@ -1682,23 +1712,23 @@ async function saveTgCheckin(entry) {
   } catch (e) { console.warn('TG checkin save failed:', e); }
 }
 
-// Сохраняем напоминание на сервер при изменении настроек
 async function syncReminderToServer(hour, minute, enabled) {
   if (!tgUser || !window.Telegram?.WebApp?.initData) return;
   try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await fetch(`${RAILWAY_URL}/reminder/set`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         initData: window.Telegram.WebApp.initData,
-        hour, minute, enabled,
+        hour, minute, enabled, timezone,
       }),
     });
   } catch (e) { console.warn('Reminder sync failed:', e); }
 }
 
-window._saveTgCheckin = saveTgCheckin;
 window._syncReminderToServer = syncReminderToServer;
+window._saveTgCheckin = saveTgCheckin;
 </script>
 <script>
 if('serviceWorker' in navigator){
@@ -1708,6 +1738,7 @@ renderMain();
 initNotifications();
 initAuth();
 initTelegram();
+initTzSelect();
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
 </script>
 </body>
