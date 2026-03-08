@@ -139,11 +139,23 @@ app.post('/checkins/get', async (req, res) => {
 
 // ── Сохранение напоминания ──
 app.post('/reminder/set', async (req, res) => {
-  const { initData, hour, minute, enabled } = req.body;
+  const { initData, hour, minute, enabled, timezone } = req.body;
   if (!initData) return res.status(400).json({ error: 'Missing initData' });
 
   const user = verifyTelegramData(initData);
   if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+  // Переводим локальное время пользователя в UTC
+  const tz = timezone || 'Europe/Moscow';
+  const now = new Date();
+  // Получаем UTC offset для данного timezone в минутах
+  const localDate = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const offsetMinutes = (localDate - utcDate) / 60000;
+  const offsetHours = offsetMinutes / 60;
+
+  let utcHour = ((hour ?? 20) - offsetHours + 24) % 24;
+  let utcMinute = minute ?? 0;
 
   await fetch(`${SUPABASE_URL}/rest/v1/reminders`, {
     method: 'POST',
@@ -155,8 +167,9 @@ app.post('/reminder/set', async (req, res) => {
     },
     body: JSON.stringify({
       tg_id: user.id,
-      hour: hour ?? 20,
-      minute: minute ?? 0,
+      hour: Math.round(utcHour),
+      minute: utcMinute,
+      timezone: tz,
       enabled: enabled !== false,
       updated_at: new Date().toISOString(),
     }),
