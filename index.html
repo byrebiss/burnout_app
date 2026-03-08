@@ -830,6 +830,7 @@ async function saveCheckin(){
   const entry={date:new Date().toISOString(), answers:{...answers}, note:note||null};
   data.push(entry);
   save(data);
+  // Сохраняем в Supabase если авторизован через Google/email
   if(currentUser){
     try{
       await sb.from('checkins').insert({
@@ -841,6 +842,8 @@ async function saveCheckin(){
       });
     }catch(e){ console.warn('Supabase save failed:', e); }
   }
+  // Сохраняем на Railway если авторизован через Telegram
+  if(window._saveTgCheckin) window._saveTgCheckin(entry);
   showResult();
 }
 
@@ -1611,21 +1614,108 @@ async function signOut(){
 }
 </script>
 <script>
+// ── TELEGRAM MINI APP ──
+const RAILWAY_URL = 'https://burnout.up.railway.app';
+
+let tgUser = null; // данные пользователя Telegram
+
+async function initTelegram() {
+  if (!window.Telegram?.WebApp) return;
+
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+  tg.BackButton.hide();
+
+  const initData = tg.initData;
+  if (!initData) return; // открыто не в Telegram
+
+  try {
+    // Проверяем initData на сервере
+    const res = await fetch(`${RAILWAY_URL}/auth/telegram`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+
+    tgUser = data.user;
+    console.log('TG auth ok:', tgUser.name);
+
+    // Подгружаем чекины с сервера и мержим с локальными
+    await syncFromServer(initData);
+
+  } catch (e) {
+    console.warn('TG auth failed:', e);
+  }
+}
+
+// Подгрузить чекины с сервера и сохранить локально
+async function syncFromServer(initData) {
+  try {
+    const res = await fetch(`${RAILWAY_URL}/checkins/get`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok || !data.checkins.length) return;
+
+    // Мержим: серверные данные приоритет, локальные дополняем
+    const local = load();
+    const localDates = new Set(local.map(d => d.date));
+    const newFromServer = data.checkins
+      .filter(c => !localDates.has(c.date))
+      .map(c => ({ date: c.date, answers: c.answers, note: c.note }));
+
+    if (newFromServer.length) {
+      const merged = [...local, ...newFromServer].sort((a, b) => new Date(a.date) - new Date(b.date));
+      save(merged);
+      renderMain();
+      console.log(`Синхронизировано с сервера: ${newFromServer.length} чекинов`);
+    }
+  } catch (e) {
+    console.warn('Sync from server failed:', e);
+  }
+}
+
+// Сохранить чекин на сервер (вызывается после saveCheckin)
+async function saveTgCheckin(entry) {
+  if (!tgUser || !window.Telegram?.WebApp?.initData) return;
+  try {
+    const calcS = a => +(Object.values(a).reduce((s,x)=>s+x,0)/Object.values(a).length*2).toFixed(1);
+    await fetch(`${RAILWAY_URL}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: window.Telegram.WebApp.initData,
+        checkin: { ...entry, score: calcS(entry.answers) },
+      }),
+    });
+  } catch (e) {
+    console.warn('TG checkin save failed:', e);
+  }
+}
+
+// Патчим saveCheckin чтобы он также сохранял на сервер
+const _origSaveCheckin = saveCheckin;
+// Переопределяем saveCheckin ниже через обёртку
+window._saveTgCheckin = saveTgCheckin;
+</script>
+<script>
+// Патч saveCheckin для TG синхронизации
+const __origSave = window.saveCheckin;
+</script>
+<script>
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 renderMain();
 initNotifications();
 initAuth();
+initTelegram(); // запускаем Telegram авторизацию
 window.addEventListener('resize',()=>{ const d=load(); if(d.length) drawChart(d); });
-</script>
-<script>
-  if (window.Telegram?.WebApp) {
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-    tg.BackButton.hide();
-  }
 </script>
 </body>
 </html>

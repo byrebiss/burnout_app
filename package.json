@@ -1,6 +1,6 @@
 {
   "name": "burnout-detector-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Telegram bot for Burnout Detector Mini App",
   "main": "index.js",
   "scripts": {
