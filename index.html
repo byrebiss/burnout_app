@@ -601,7 +601,18 @@ function showScreen(id){
   });
 }
 function goBack(to){ showScreen(to); if(to==='screen-main') renderMain(); if(to==='screen-history') showHistory(); }
-function resetData(){ if(!confirm('Сбросить все данные?')) return; localStorage.removeItem('bd3'); localStorage.removeItem('bd3-trash'); localStorage.removeItem('bd3-inotes'); renderMain(); showScreen('screen-main'); }
+function resetData(){
+  if(!confirm('Сбросить все данные?')) return;
+  localStorage.removeItem('bd3');
+  localStorage.removeItem('bd3-trash');
+  localStorage.removeItem('bd3-inotes');
+  // Удаляем данные на сервере если авторизован через Telegram
+  if(window.Telegram?.WebApp?.initData && window._deleteTgCheckins) {
+    window._deleteTgCheckins();
+  }
+  renderMain();
+  showScreen('screen-main');
+}
 
 // ── MAIN ──
 function toggleCompare(){ compareMode=!compareMode; renderMain(); }
@@ -1727,8 +1738,32 @@ async function syncReminderToServer(hour, minute, enabled) {
   } catch (e) { console.warn('Reminder sync failed:', e); }
 }
 
+async function deleteTgCheckins() {
+  if (!window.Telegram?.WebApp?.initData) return;
+  try {
+    await fetch(`${RAILWAY_URL}/checkins/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: window.Telegram.WebApp.initData }),
+    });
+  } catch (e) { console.warn('TG delete failed:', e); }
+}
+
+window._deleteTgCheckins = deleteTgCheckins;
 window._syncReminderToServer = syncReminderToServer;
 window._saveTgCheckin = saveTgCheckin;
+
+async function deleteTgCheckins() {
+  if (!window.Telegram?.WebApp?.initData) return;
+  try {
+    await fetch(`${RAILWAY_URL}/checkins/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: window.Telegram.WebApp.initData }),
+    });
+  } catch (e) { console.warn('Delete checkins failed:', e); }
+}
+window._deleteTgCheckins = deleteTgCheckins;
 </script>
 <script>
 if('serviceWorker' in navigator){
